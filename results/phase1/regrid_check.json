@@ -1,0 +1,66 @@
+{
+ "example": "source-era5_date-2022-01-01_res-1.0_levels-13_steps-12.nc",
+ "candidates": {
+  "wb2-1deg": {
+   "store": "gs://weatherbench2/datasets/era5/1959-2023_01_10-6h-360x181_equiangular_with_poles_conservative.zarr",
+   "method": "as-stored",
+   "variables": {
+    "2m_temperature": {
+     "rmse": 0.4813688099384308,
+     "max_abs": 9.844436645507812
+    },
+    "10m_u_component_of_wind": {
+     "rmse": 0.5044785141944885,
+     "max_abs": 9.236345291137695
+    },
+    "10m_v_component_of_wind": {
+     "rmse": 0.5075199007987976,
+     "max_abs": 9.140968322753906
+    }
+   },
+   "mean_rmse": 0.49778907497723895
+  },
+  "subsample": {
+   "store": "gs://weatherbench2/datasets/era5/1959-2023_01_10-wb13-6h-1440x721_with_derived_variables.zarr",
+   "method": "subsample",
+   "variables": {
+    "2m_temperature": {
+     "rmse": 0.0,
+     "max_abs": 0.0
+    },
+    "10m_u_component_of_wind": {
+     "rmse": 0.0,
+     "max_abs": 0.0
+    },
+    "10m_v_component_of_wind": {
+     "rmse": 0.0,
+     "max_abs": 0.0
+    }
+   },
+   "mean_rmse": 0.0
+  },
+  "conservative": {
+   "store": "gs://weatherbench2/datasets/era5/1959-2023_01_10-wb13-6h-1440x721_with_derived_variables.zarr",
+   "method": "conservative",
+   "variables": {
+    "2m_temperature": {
+     "rmse": 0.4796128273010254,
+     "max_abs": 9.845199584960938
+    },
+    "10m_u_component_of_wind": {
+     "rmse": 0.4066070318222046,
+     "max_abs": 6.92680549621582
+    },
+    "10m_v_component_of_wind": {
+     "rmse": 0.40721595287323,
+     "max_abs": 7.346316337585449
+    }
+   },
+   "mean_rmse": 0.43114527066548664
+  }
+ },
+ "chosen": "subsample",
+ "chosen_store": "gs://weatherbench2/datasets/era5/1959-2023_01_10-wb13-6h-1440x721_with_derived_variables.zarr",
+ "chosen_method": "subsample",
+ "exact_match": true
+}
