@@ -1,0 +1,31 @@
+jax 0.12.0.1 | debug_nans = True
+/Users/RomanGorelsky/Documents/GitHub/graphcast-extremes/src/extremes/model.py:173: FutureWarning: In a future version, xarray will not decode the variable 'time' into a timedelta64 dtype based on the presence of a timedelta-like 'units' attribute by default. Instead it will rely on the presence of a timedelta64 'dtype' attribute, which is now xarray's default way of encoding timedelta64 values.
+To continue decoding into a timedelta64 dtype, either set `decode_timedelta=True` when opening this dataset, or add the attribute `dtype='timedelta64[ns]'` to this variable on disk.
+To opt-in to future behavior, set `decode_timedelta=False`.
+  return xarray.load_dataset(assets / "dataset" / names[-1]).compute(), names[-1]
+WARNING:absl:Skipping gradient checkpointing for sequence length of 1
+WARNING:absl:Skipping gradient checkpointing for sequence length of 1
+Invalid nan value encountered in the output of a jax.jit function. Calling the de-optimized version.
+Traceback (most recent call last):
+  File "/Users/RomanGorelsky/Documents/GitHub/graphcast-extremes/scripts/diag_nan3.py", line 20, in <module>
+    pred = m.forecast(inputs, targets, forcings)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/RomanGorelsky/Documents/GitHub/graphcast-extremes/src/extremes/model.py", line 139, in forecast
+    pred = rollout.chunked_prediction(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/anaconda3/envs/extremes/lib/python3.12/site-packages/weathernext/utils/rollout.py", line 353, in chunked_prediction
+    for prediction_chunk in chunked_prediction_generator(
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/anaconda3/envs/extremes/lib/python3.12/site-packages/weathernext/utils/rollout.py", line 534, in chunked_prediction_generator
+    predictions = predictor_fn(
+                  ^^^^^^^^^^^^^
+  File "/Users/RomanGorelsky/Documents/GitHub/graphcast-extremes/src/extremes/model.py", line 123, in <lambda>
+    self._forward = lambda **kw: apply(self.params, self.state, **kw)[0]
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FloatingPointError: ('jit(apply_fn)', 'nan'). Because jax_config.debug_nans.value and/or config.jax_debug_infs is set, the de-optimized function (i.e., the function as if the `jit` decorator were removed) was called in an attempt to get a more precise error message. However, the de-optimized function did not produce invalid values during its execution. This behavior can result from `jit` optimizations causing the invalid value to be produced. It may also arise from having nan/inf literals as inputs or outputs, like `jax.jit(lambda ...: jax.numpy.nan)(...)`. 
+
+It may be possible to avoid the invalid value by removing the `jit` decorator, at the cost of losing optimizations. 
+
+If you see this error, consider opening a bug report at https://github.com/jax-ml/jax.
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.

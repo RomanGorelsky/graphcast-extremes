@@ -1,0 +1,16 @@
+# GraphCast / WeatherNext library, pinned to one commit of the authors' repo.
+# (Its install name is 'weathernext'; it needs Python >= 3.12.)
+weathernext @ git+https://github.com/google-deepmind/graphcast@f2f2c5117d2f864e2d5e7c2f9f220db5e1049dd3
+# JAX pinned: jax 0.12.0.1 produces all-NaN GraphCast forecasts on Apple-Silicon CPUs
+# when jit-compiled (the de-optimised run is fine) - found in Phase 0. 0.7.2 works.
+# On a GPU (Colab, cluster) install the matching CUDA build: pip install "jax[cuda12]==0.7.2"
+jax==0.7.2
+jaxlib==0.7.2
+google-cloud-storage
+gcsfs
+zarr
+scikit-learn
+matplotlib
+cartopy
+pytest
+ipykernel

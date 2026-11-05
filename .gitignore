@@ -1,0 +1,13 @@
+# large or machine-specific files never go to git
+data/*
+!data/.gitkeep
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+*.part
+results/**/*.nc
+results/**/*.zarr
+.pytest_cache/
+*.egg-info/

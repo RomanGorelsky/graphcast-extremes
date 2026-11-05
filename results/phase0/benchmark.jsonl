@@ -1,0 +1,1 @@
+{"label": "mac-cpu", "devices": ["TFRT_CPU_0"], "platform": "macOS-27.0.1-arm64-arm-64bit", "example": "source-era5_date-2022-01-01_res-1.0_levels-13_steps-12.nc", "steps_timed": 12, "compile_plus_first_step_s": 11.4, "seconds_per_step": 8.861, "projected_10day_forecast_s": 354.4}
