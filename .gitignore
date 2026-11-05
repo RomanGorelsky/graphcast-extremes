@@ -11,3 +11,5 @@ results/**/*.nc
 results/**/*.zarr
 .pytest_cache/
 *.egg-info/
+results/**/*.csv.gz
+results/**/yearly/

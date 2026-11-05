@@ -46,6 +46,21 @@ Easiest with **GitHub Desktop**: File -> Add Local Repository -> this folder -> 
 repository" (Git ignore: None, the project has its own) -> Create Repository -> Publish
 repository. The repository is https://github.com/RomanGorelsky/graphcast-extremes.
 
+## Phase 1 — record thresholds and 2020 records (Colab, CPU runtime)
+
+Open `notebooks/01_colab_phase1.ipynb` in Colab and run it top to bottom:
+
+| Step | Script | Output in `results/phase1/` |
+| --- | --- | --- |
+| Which 0.25°→1° conversion matches the model's data | `10_check_regridding.py` | `regrid_check.json` |
+| Highest/lowest t2m and highest 10 m wind per 1° cell and month, 1979–2015 | `11_record_thresholds.py` | `thresholds_1979-2015_1deg.nc` (+ `yearly/`) |
+| Every 2020 record (land, north of 60°S) | `12_find_records.py` | `records_2020.csv.gz`, `records_2020_summary.json` |
+| Sanity maps (compare Zhang et al. Fig. 1A–B) | `13_sanity_maps.py` | `records_2020_maps.png` |
+
+Data source: WeatherBench2 ERA5 (`gs://weatherbench2/...-wb13-6h-1440x721...zarr`), read
+anonymously. `11_` is resumable (one file per finished year). The `.nc` / `.csv.gz` outputs are
+not in git; download them from Drive into `results/phase1/` on the Mac.
+
 ## What "done" means for Phase 0
 
 * `pytest` passes on the Mac and in Colab.
