@@ -14,11 +14,13 @@ def thresholds_path(start: int = REF_START, end: int = REF_END):
     return OUT / f"thresholds_{start}-{end}_1deg.nc"
 
 
-def chosen_method() -> str:
+def chosen() -> tuple[str, str]:
+    """(store, method) picked by scripts/10_check_regridding.py."""
     f = OUT / "regrid_check.json"
     if not f.exists():
         raise FileNotFoundError("run scripts/10_check_regridding.py first")
-    return json.loads(f.read_text())["chosen_method"]
+    r = json.loads(f.read_text())
+    return r["chosen_store"], r["chosen_method"]
 
 
 def land_mask() -> tuple[xarray.DataArray, xarray.DataArray]:

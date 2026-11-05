@@ -22,10 +22,11 @@ from extremes import era5, phase1, records
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--year", type=int, default=2020)
-    ap.add_argument("--store", default=era5.WB2_ERA5)
+    ap.add_argument("--store", default=None, help="default: the store chosen by 10_check_regridding.py")
     ap.add_argument("--io-threads", type=int, default=32)
     a = ap.parse_args()
-    method = phase1.chosen_method()
+    store, method = phase1.chosen()
+    a.store = a.store or store
     th = xarray.load_dataset(phase1.thresholds_path())
     if th.attrs.get("regrid_method") != method:
         raise RuntimeError("thresholds were made with a different regridding method")

@@ -25,6 +25,10 @@ import xarray
 # the name has changed; any store can be passed with --store.
 WB2_ERA5 = "gs://weatherbench2/datasets/era5/1959-2023_01_10-wb13-6h-1440x721_with_derived_variables.zarr"
 
+# The same ERA5, already on a 1-degree grid (360 x 181 incl. poles) by WeatherBench2's
+# conservative regridding - 16x less data to read, used if it matches the model's data.
+WB2_ERA5_1DEG = "gs://weatherbench2/datasets/era5/1959-2023_01_10-6h-360x181_equiangular_with_poles_conservative.zarr"
+
 T2M, U10, V10 = "2m_temperature", "10m_u_component_of_wind", "10m_v_component_of_wind"
 LSM = "land_sea_mask"
 
@@ -117,6 +121,8 @@ def load_1deg(ds: xarray.Dataset, var: str, times, method: str,
         da = da.load()
     if da.sizes["lat"] == 181:                                 # already 1 degree
         return da
+    if method == "as-stored":
+        raise ValueError(f"method 'as-stored' needs a 1-degree store, got {da.sizes['lat']} latitudes")
     return regrid(da, method)
 
 

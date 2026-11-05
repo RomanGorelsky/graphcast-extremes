@@ -21,11 +21,12 @@ from extremes import era5, phase1, records
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--store", default=era5.WB2_ERA5)
+    ap.add_argument("--store", default=None, help="default: the store chosen by 10_check_regridding.py")
     ap.add_argument("--years", nargs=2, type=int, default=[phase1.REF_START, phase1.REF_END])
     ap.add_argument("--io-threads", type=int, default=32)
     a = ap.parse_args()
-    method = phase1.chosen_method()
+    store, method = phase1.chosen()
+    a.store = a.store or store
     y0, y1 = a.years
     phase1.YEARLY.mkdir(parents=True, exist_ok=True)
     ds = era5.open_store(a.store)
