@@ -42,13 +42,9 @@ python scripts/02_benchmark.py --label mac-cpu
 
 ### Put the repository on GitHub (once)
 
-```bash
-cd ~/Documents/GitHub/graphcast-extremes
-git init && git add . && git commit -m "Phase 0: setup, smoke test, benchmark"
-# create an empty repo named graphcast-extremes on github.com, then:
-git remote add origin https://github.com/<your-username>/graphcast-extremes.git
-git branch -M main && git push -u origin main
-```
+Easiest with **GitHub Desktop**: File -> Add Local Repository -> this folder -> "create a
+repository" (Git ignore: None, the project has its own) -> Create Repository -> Publish
+repository. The repository is https://github.com/RomanGorelsky/graphcast-extremes.
 
 ## What "done" means for Phase 0
 
