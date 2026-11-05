@@ -100,7 +100,8 @@ def regrid_array(x: np.ndarray, method: str) -> np.ndarray:
 
 
 def regrid(da: xarray.DataArray, method: str) -> xarray.DataArray:
-    """DataArray with (lat, lon) as its last two dims -> same on the 1-deg grid."""
+    """DataArray on the 0.25-deg grid -> same on the 1-deg grid (lat, lon last)."""
+    da = da.transpose(..., "lat", "lon")                       # stores differ in axis order
     _check_quarter_grid(da.lat.values, da.lon.values)
     out = regrid_array(np.asarray(da.values), method)
     dims = da.dims
@@ -116,7 +117,8 @@ def load_1deg(ds: xarray.Dataset, var: str, times, method: str,
     Downloading is network-bound, so many threads fetch chunks at once even on
     Colab's 2 CPUs."""
     import dask
-    da = ds[var].sel(time=times).astype(np.float32)
+    # some stores keep (time, lon, lat): always put latitude, longitude last
+    da = ds[var].sel(time=times).astype(np.float32).transpose(..., "lat", "lon")
     with dask.config.set(scheduler="threads", num_workers=io_threads):
         da = da.load()
     if da.sizes["lat"] == 181:                                 # already 1 degree
