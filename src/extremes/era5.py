@@ -119,6 +119,11 @@ def load_1deg(ds: xarray.Dataset, var: str, times, method: str,
     import dask
     # some stores keep (time, lon, lat): always put latitude, longitude last
     da = ds[var].sel(time=times).astype(np.float32).transpose(..., "lat", "lon")
+    if method == "subsample" and da.sizes["lat"] == 721:
+        # keep every 4th point WHILE reading (identical result to regrid(..., "subsample"),
+        # but each 0.25-deg chunk is reduced as soon as it arrives: ~16x less memory)
+        _check_quarter_grid(da.lat.values, da.lon.values)
+        da = da.isel(lat=slice(None, None, 4), lon=slice(None, None, 4))
     with dask.config.set(scheduler="threads", num_workers=io_threads):
         da = da.load()
     if da.sizes["lat"] == 181:                                 # already 1 degree

@@ -9,6 +9,7 @@ Rows are appended to results/phase3/noharm.csv with a --label, so every later mo
     python scripts/32_run_noharm.py --label R0
 """
 import argparse
+import gc
 import time
 
 import pandas as pd
@@ -51,6 +52,8 @@ def main():
             z = era5.load_1deg(ds.sel(level=[500]), "geopotential", [valid], "subsample", a.io_threads)
             rows.append(("z500", lead, float(metrics.rmse(pred["geopotential"].sel(level=500).isel(time=k),
                                                           z.isel(time=0, level=0)))))
+        del batch, i, tg, fo, pred
+        gc.collect()
         new = pd.DataFrame([dict(label=a.label, init=init, var=v, lead_days=l, rmse=r) for v, l, r in rows])
         new.to_csv(f, mode="a", header=not f.exists(), index=False)
         print(f"{a.label} {init:%Y-%m-%d}: " + ", ".join(

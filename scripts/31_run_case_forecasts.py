@@ -12,6 +12,7 @@ Resumable: existing files are skipped.
     python scripts/31_run_case_forecasts.py --only heat-004 wind-004     # a subset
 """
 import argparse
+import gc
 import time
 
 import pandas as pd
@@ -58,6 +59,8 @@ def main():
         p = phase3.forecast_path(c.event_id, d)
         out.to_netcdf(p.with_suffix(".part.nc"))
         p.with_suffix(".part.nc").rename(p)
+        del batch, i, tg, f, pred, out
+        gc.collect()                                   # keep memory flat between forecasts
         print(f"[{n}/{len(todo)}] {c.event_id} start -{d} d ({str(init)[:13]}): "
               f"{time.perf_counter() - t0:.0f} s  (total {(time.perf_counter() - t_start) / 60:.1f} min)",
               flush=True)
