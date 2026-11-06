@@ -58,14 +58,35 @@ def main():
 
     # one forecast step from both batches
     m = model.load_model()
-    preds = []
-    for batch in (ref, ours):
-        i, tg, f = m.extract(batch, 1)
-        preds.append(m.forecast(i, tg, f))
-    dmax = {v: float(np.abs(preds[0][v] - preds[1][v]).max()) for v in ("2m_temperature", "10m_u_component_of_wind")}
+    preds, forcings = [], []
+    for name_, batch in (("example", ref), ("ours", ours)):
+        i, tg, f = m.extract(batch, 1)          # computes solar radiation if the batch lacks it
+        forcings.append(f)
+        p = m.forecast(i, tg, f)
+        preds.append(p)
+        n_in = {v: int(np.isnan(i[v].values).sum()) for v in i.data_vars if np.isnan(i[v].values).any()}
+        n_f = {v: int(np.isnan(f[v].values).sum()) for v in f.data_vars if np.isnan(f[v].values).any()}
+        n_p = int(sum(np.isnan(p[v].values).sum() for v in p.data_vars))
+        print(f"  {name_:8s} NaN in model inputs: {n_in or 'none'} | in forcings: {n_f or 'none'} | "
+              f"in the forecast: {n_p:,}", flush=True)
+        report[f"nan_{name_}"] = {"inputs": n_in, "forcings": n_f, "forecast": n_p}
+
+    # solar radiation: example (ERA5) vs what we feed / the library computes
+    a = forcings[0][inputs.TISR].values.astype(np.float64)
+    b = forcings[1][inputs.TISR].values.astype(np.float64)
+    d = np.abs(a - b)
+    report["tisr_vs_example"] = {"max_abs_diff": float(np.nanmax(d)), "rmse": float(np.sqrt(np.nanmean(d ** 2))),
+                                 "max_diff_over_std": float(np.nanmax(d) / np.nanstd(a)),
+                                 "nan_ours": int(np.isnan(b).sum())}
+    print("  solar radiation, ours vs example:", report["tisr_vs_example"], flush=True)
+    same_grid = all(np.array_equal(preds[0][c].values, preds[1][c].values) for c in ("lat", "lon", "time"))
+    dmax = {v: float(np.nanmax(np.abs(preds[0][v].values - preds[1][v].values)))
+            for v in ("2m_temperature", "10m_u_component_of_wind")}
     report["one_step_prediction_max_diff"] = dmax
+    report["same_output_grid"] = bool(same_grid)
     report["all_match"] = bool(ok)
-    print("one-step forecast, max |difference| between the two batches:", dmax)
+    print("one-step forecast, max |difference| between the two batches (ignoring NaN):", dmax,
+          "| same output grid:", same_grid)
     (OUT / "input_check.json").write_text(json.dumps(report, indent=1))
     print("\nALL INPUTS MATCH" if ok else "\nMISMATCH - send this output to Claude before running forecasts")
 
