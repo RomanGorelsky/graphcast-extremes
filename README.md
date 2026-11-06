@@ -61,6 +61,19 @@ Data source: WeatherBench2 ERA5 (`gs://weatherbench2/...-wb13-6h-1440x721...zarr
 anonymously. `11_` is resumable (one file per finished year). The `.nc` / `.csv.gz` outputs are
 not in git; download them from Drive into `results/phase1/` on the Mac.
 
+## Phase 2 — events, record-shattering outliers, weather regimes (Mac + one Colab step)
+
+1. Colab: `notebooks/02_colab_phase2_z500.ipynb` (daily 500 hPa heights, ~10 min), then download
+   `z500_daily_1979-2020_2p8deg.nc` into `results/phase2/`.
+2. Mac (`conda activate extremes`), in order:
+
+| Script | Method | Output in `results/phase2/` |
+| --- | --- | --- |
+| `21_detect_events.py` | DBSCAN on record cells (space-time) | `events_2020.csv`, `kdistance.png`, `events_2020_map.png` |
+| `22_outliers.py` | Isolation Forest (20 seeds) | record-shattering flags, `events_2020_outliers.png` |
+| `23_regimes.py` | PCA + K-means on z500 anomalies per sector | `regimes_*.{csv,json,png}`, regime per event |
+| `24_select_events.py` | rule-based selection | `case_studies.csv`, `candidates_<kind>.csv` |
+
 ## What "done" means for Phase 0
 
 * `pytest` passes on the Mac and in Colab.
