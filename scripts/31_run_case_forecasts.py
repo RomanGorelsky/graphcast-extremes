@@ -45,7 +45,9 @@ def main():
         init = pd.Timestamp(getattr(c, f"init_minus_{d}d"))
         batch = inputs.build_batch(ds, init, phase3.N_STEPS, statics=statics, io_threads=a.io_threads)
         i, tg, f = m.extract(batch, phase3.N_STEPS)
-        pred = m.forecast(i, tg, f).isel(batch=0)
+        del batch
+        gc.collect()
+        pred = m.forecast(i, tg, f, keep={v: None for v in phase3.VERIFY_VARS}).isel(batch=0)
         valid = init + pd.to_timedelta(pred.time.values)
         out = xarray.Dataset()
         for var in phase3.VERIFY_VARS:
@@ -59,7 +61,7 @@ def main():
         p = phase3.forecast_path(c.event_id, d)
         out.to_netcdf(p.with_suffix(".part.nc"))
         p.with_suffix(".part.nc").rename(p)
-        del batch, i, tg, f, pred, out
+        del i, tg, f, pred, out
         gc.collect()                                   # keep memory flat between forecasts
         print(f"[{n}/{len(todo)}] {c.event_id} start -{d} d ({str(init)[:13]}): "
               f"{time.perf_counter() - t0:.0f} s  (total {(time.perf_counter() - t_start) / 60:.1f} min)",

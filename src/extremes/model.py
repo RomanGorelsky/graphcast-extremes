@@ -142,15 +142,32 @@ class Model:
             batch, target_lead_times=slice("6h", f"{n_steps * 6}h"),
             **dataclasses.asdict(self.task_config))
 
-    def forecast(self, inputs, targets_template, forcings, seed: int = 0) -> xarray.Dataset:
-        """Autoregressive rollout, one jitted 6-h step at a time (low memory)."""
-        pred = rollout.chunked_prediction(
-            self._forward, rng=jax.random.PRNGKey(seed), inputs=inputs,
-            targets_template=targets_template * np.nan, forcings=forcings)
-        # chunked_prediction concatenates along time, moving it first; restore each
-        # variable's own dimension order (surface and pressure-level variables differ)
-        # so forecasts and targets line up exactly.
-        return pred.assign({v: pred[v].transpose(*targets_template[v].dims)
+    def forecast(self, inputs, targets_template, forcings, seed: int = 0,
+                 keep: dict | None = None) -> xarray.Dataset:
+        """Autoregressive rollout, one jitted 6-h step at a time.
+
+        keep: optional {variable: None | [levels]} - only these variables (and levels)
+        are kept from each step as it is produced. A full 10-day forecast of all 83
+        fields is ~0.9 GB and is held twice while being joined; keeping only what is
+        verified keeps Colab's 12 GB of RAM well clear (found in Phase 3).
+        """
+        template = targets_template if bool(np.isnan(targets_template[
+            next(iter(targets_template.data_vars))].values.flat[0])) else targets_template * np.nan
+        chunks = []
+        for chunk in rollout.chunked_prediction_generator(
+                predictor_fn=self._forward, rng=jax.random.PRNGKey(seed), inputs=inputs,
+                targets_template=template, forcings=forcings):
+            chunk = jax.device_get(chunk)
+            if keep is not None:
+                chunk = xarray.Dataset({v: chunk[v] if lev is None else chunk[v].sel(level=lev)
+                                        for v, lev in keep.items()})
+            chunks.append(chunk)
+            del chunk
+        pred = xarray.concat(chunks, dim="time")
+        del chunks
+        # concatenation moves time first; restore each variable's own dimension order
+        # (surface and pressure-level variables differ) so forecasts and targets line up.
+        return pred.assign({v: pred[v].transpose(*[d for d in targets_template[v].dims if d in pred[v].dims])
                             for v in pred.data_vars})
 
 

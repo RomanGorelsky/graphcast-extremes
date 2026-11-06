@@ -41,7 +41,10 @@ def main():
         t0 = time.perf_counter()
         batch = inputs.build_batch(ds, init, phase3.N_STEPS, statics=statics, io_threads=a.io_threads)
         i, tg, fo = m.extract(batch, phase3.N_STEPS)
-        pred = m.forecast(i, tg, fo).isel(batch=0)
+        del batch
+        gc.collect()
+        keep = {**{v: None for v in SURF}, "geopotential": [500]}
+        pred = m.forecast(i, tg, fo, keep=keep).isel(batch=0)
         rows = []
         for lead in LEADS:
             k = 4 * lead - 1                                   # index of the 6-h step at `lead` days
@@ -52,7 +55,7 @@ def main():
             z = era5.load_1deg(ds.sel(level=[500]), "geopotential", [valid], "subsample", a.io_threads)
             rows.append(("z500", lead, float(metrics.rmse(pred["geopotential"].sel(level=500).isel(time=k),
                                                           z.isel(time=0, level=0)))))
-        del batch, i, tg, fo, pred
+        del i, tg, fo, pred
         gc.collect()
         new = pd.DataFrame([dict(label=a.label, init=init, var=v, lead_days=l, rmse=r) for v, l, r in rows])
         new.to_csv(f, mode="a", header=not f.exists(), index=False)
