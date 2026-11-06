@@ -24,7 +24,7 @@ REF_START, REF_END = "1979-01-01", "2015-12-31"
 
 
 def _design(time: pd.DatetimeIndex, n_harm: int = 3) -> np.ndarray:
-    doy = time.dayofyear.values + time.hour.values / 24
+    doy = time.day_of_year.values + time.hour.values / 24
     years = (time - pd.Timestamp("1997-01-01")).days.values / 365.25
     cols = [np.ones(len(time)), years]
     for k in range(1, n_harm + 1):

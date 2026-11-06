@@ -9,6 +9,7 @@ jaxlib==0.7.2
 google-cloud-storage
 gcsfs
 zarr
+netCDF4          # read/write NetCDF-4 files (thresholds, z500) on the Mac
 scikit-learn
 matplotlib
 cartopy

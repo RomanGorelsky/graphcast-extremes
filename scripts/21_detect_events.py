@@ -78,11 +78,14 @@ def main():
               f"largest {summary['per_kind'][kind]['largest_event_cells']}")
     (OUT / f"events_{a.year}_summary.json").write_text(json.dumps(summary, indent=1, default=str))
 
-    print("\nTop 5 events per kind (by total exceedance):")
-    cols = ["event_id", "peak_time", "centre_lat", "centre_lon", "n_cells", "duration_h",
-            "peak_exceedance", "sector", "coastal_fraction"]
+    print("\nTop 5 events per kind (by area-weighted exceedance):")
+    cols = ["event_id", "peak_time", "centre_lat", "centre_lon", "n_cells", "area_km2", "duration_h",
+            "peak_exceedance", "weighted_exceedance", "sector"]
     for kind in records.KINDS:
-        print(ev[ev.kind == kind].head(5)[cols].round(1).to_string(index=False))
+        top = ev[ev.kind == kind].head(5)[cols].copy()
+        num = top.select_dtypes("number").columns
+        top[num] = top[num].round(1)
+        print(top.to_string(index=False))
 
     # map of event centres
     fig, ax = plt.subplots(figsize=(13, 6))

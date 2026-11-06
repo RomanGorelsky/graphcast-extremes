@@ -68,7 +68,9 @@ def test_sector_of():
     assert events.sector_of(50, 355) == "euro_atlantic"   # wraps through 0 deg
     assert events.sector_of(40, 260) == "north_america"
     assert events.sector_of(-15, 300) == "south_america"
-    assert events.sector_of(-25, 135) == "other"          # Australia
+    assert events.sector_of(-25, 135) == "australia"
+    assert events.sector_of(30, 45) == "middle_east"      # checked before euro_atlantic
+    assert events.sector_of(0, 20) == "other"             # tropical Africa
 
 
 def test_regimes_recover_planted_patterns():
@@ -78,7 +80,7 @@ def test_regimes_recover_planted_patterns():
     rng = np.random.default_rng(0)
     pats = rng.normal(0, 400, (3, lat.size, lon.size))
     which = rng.integers(0, 3, t.size)
-    doy = t.dayofyear.values
+    doy = t.day_of_year.values
     base = 55000 + 800 * np.cos(2 * np.pi * doy / 365.25)[:, None, None] + 2.0 * (t.year.values - 1979)[:, None, None]
     z = base + pats[which] + rng.normal(0, 60, (t.size, lat.size, lon.size))
     z = xarray.DataArray(z, dims=("time", "lat", "lon"), coords={"time": t, "lat": lat, "lon": lon})

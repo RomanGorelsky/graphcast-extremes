@@ -24,13 +24,17 @@ from sklearn.preprocessing import StandardScaler
 EARTH_R_KM = 6371.0
 CELL_KM2_AT_EQUATOR = (2 * np.pi * EARTH_R_KM / 360) ** 2      # one 1x1 deg cell, ~12,364 km2
 
-# Regions for the weather-regime analysis (lon in 0..360). An event belongs to the
-# first region containing its centre; events elsewhere get sector "other".
+# Regions for the weather-regime analysis (lon in 0..360). Only the regime labels use
+# them; events everywhere are detected, analysed and can be chosen. An event belongs to
+# the FIRST region containing its centre (order matters where boxes overlap: the Middle
+# East is checked before the Euro-Atlantic box); events elsewhere get sector "other".
 SECTORS = {
+    "middle_east": dict(lat=(12, 42), lon=(25, 63)),
     "north_america": dict(lat=(20, 80), lon=(190, 310)),
     "euro_atlantic": dict(lat=(30, 80), lon=(300, 60)),       # wraps through 0 deg
     "asia_siberia": dict(lat=(30, 85), lon=(60, 180)),
     "south_america": dict(lat=(-55, 10), lon=(275, 330)),
+    "australia": dict(lat=(-45, -10), lon=(110, 160)),
 }
 
 
@@ -91,7 +95,12 @@ def event_features(df: pd.DataFrame, land_sea_mask=None) -> pd.DataFrame:
                    start=t.min(), end=t.max(), duration_h=(t.max() - t.min()).total_seconds() / 3600 + 6,
                    peak_time=pd.Timestamp(peak.time), peak_lat=float(peak.lat), peak_lon=float(peak.lon),
                    peak_exceedance=float(g.exceedance.max()), mean_exceedance=float(g.exceedance.mean()),
-                   total_exceedance=float(g.exceedance.sum()), centre_lat=lat_c, centre_lon=lon_c,
+                   total_exceedance=float(g.exceedance.sum()),
+                   # area-weighted: sum of exceedance x cell area (unit x 1e6 km2); high-latitude
+                   # cells are smaller, so an unweighted sum would favour polar events
+                   weighted_exceedance=float((g.exceedance * CELL_KM2_AT_EQUATOR
+                                              * np.cos(np.deg2rad(g.lat))).sum() / 1e6),
+                   centre_lat=lat_c, centre_lon=lon_c,
                    month=int(pd.Timestamp(peak.time).month), sector=sector_of(lat_c, lon_c))
         if land_sea_mask is not None:
             m = land_sea_mask.sel(lat=xarray.DataArray(cells.lat.values, dims="cell"),
@@ -101,7 +110,7 @@ def event_features(df: pd.DataFrame, land_sea_mask=None) -> pd.DataFrame:
         rows.append(row)
     out = pd.DataFrame(rows)
     if len(out):
-        out = out.sort_values(["kind", "total_exceedance"], ascending=[True, False]).reset_index(drop=True)
+        out = out.sort_values(["kind", "weighted_exceedance"], ascending=[True, False]).reset_index(drop=True)
         out["event_id"] = [f"{k}-{i:03d}" for k, i in zip(out.kind, out.groupby("kind").cumcount() + 1)]
     return out
 

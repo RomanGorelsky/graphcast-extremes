@@ -2,6 +2,8 @@
 
 Rules (all printed, so the choice can be discussed and changed):
   * skip likely artefacts: coastal_fraction > --max-coastal (mostly partly-land cells)
+  * skip the high Arctic (event centre north of --max-lat, default 75 N: ice sheets and
+    sea-ice coasts where ERA5 is least reliable) - kept in all statistics, only not chosen
   * skip tiny events: fewer than --min-cells cells
   * per kind, pick record-shattering and ordinary events (counts below), largest total
     exceedance first, preferring a regime/sector not yet used for that kind
@@ -13,6 +15,7 @@ Writes results/phase2/case_studies.csv and candidates_<kind>.csv (top 15 per kin
     python scripts/24_select_events.py
     python scripts/24_select_events.py --heat 2 2 --cold 1 2 --wind 1 2   # (shattering, ordinary)
     python scripts/24_select_events.py --force heat-003 --exclude wind-001
+    python scripts/24_select_events.py --include-sector middle_east australia
 """
 import argparse
 
@@ -35,7 +38,7 @@ def lon_range(lons: np.ndarray) -> tuple[float, float]:
 
 def pick(cands: pd.DataFrame, n: int, used: set) -> list:
     chosen = []
-    pool = cands.sort_values("total_exceedance", ascending=False)
+    pool = cands.sort_values("weighted_exceedance", ascending=False)
     while len(chosen) < n and len(pool):
         fresh = pool[~pool.regime.isin(used) | (pool.regime == "none")]
         row = (fresh if len(fresh) else pool).iloc[0]
@@ -53,8 +56,11 @@ def main():
     ap.add_argument("--wind", nargs=2, type=int, default=[1, 2], metavar=("SHATTERING", "ORDINARY"))
     ap.add_argument("--min-cells", type=int, default=5)
     ap.add_argument("--max-coastal", type=float, default=0.5)
+    ap.add_argument("--max-lat", type=float, default=75.0)
     ap.add_argument("--margin", type=float, default=5.0)
     ap.add_argument("--force", nargs="*", default=[], help="event_ids to include anyway")
+    ap.add_argument("--include-sector", nargs="*", default=["middle_east"],
+                    help="sectors that must have at least one case study (largest eligible event)")
     ap.add_argument("--exclude", nargs="*", default=[], help="event_ids to leave out")
     a = ap.parse_args()
 
@@ -64,9 +70,10 @@ def main():
         if col not in ev:
             raise RuntimeError(f"column {col} missing: run 22_outliers.py and 23_regimes.py first")
     ok = (ev.n_cells >= a.min_cells) & (ev.coastal_fraction.fillna(0) <= a.max_coastal) \
-        & ~ev.event_id.isin(a.exclude)
+        & (ev.centre_lat <= a.max_lat) & ~ev.event_id.isin(a.exclude)
     print(f"{len(ev)} events; {int((ev.n_cells < a.min_cells).sum())} too small, "
           f"{int((ev.coastal_fraction > a.max_coastal).sum())} mostly coastal (possible artefacts), "
+          f"{int((ev.centre_lat > a.max_lat).sum())} north of {a.max_lat:.0f} N, "
           f"{len(a.exclude)} excluded by hand -> {int(ok.sum())} eligible")
 
     chosen = []
@@ -77,10 +84,21 @@ def main():
         chosen += pick(e[e.record_shattering], n_shat, used)
         chosen += pick(e[~e.record_shattering], n_ord, used)
         cols = ["event_id", "peak_time", "centre_lat", "centre_lon", "n_cells", "duration_h",
-                "peak_exceedance", "total_exceedance", "record_shattering", "regime", "coastal_fraction"]
-        ev[ev.kind == kind].sort_values("total_exceedance", ascending=False).head(15)[cols] \
+                "peak_exceedance", "weighted_exceedance", "record_shattering", "regime", "coastal_fraction"]
+        ev[ev.kind == kind].sort_values("weighted_exceedance", ascending=False).head(15)[cols] \
             .to_csv(OUT / f"candidates_{kind}.csv", index=False)
     chosen += [f for f in a.force if f not in chosen]
+    quota = set()
+    for sec in a.include_sector:
+        have = ev[ev.event_id.isin(chosen) & (ev.sector == sec)]
+        cand = ev[ok & (ev.sector == sec) & ~ev.event_id.isin(chosen)]
+        if len(have) == 0 and len(cand):
+            best = cand.sort_values("weighted_exceedance", ascending=False).iloc[0]
+            chosen.append(best.event_id)
+            quota.add(best.event_id)
+            print(f"added {best.event_id} so that {sec} is represented")
+        elif len(have) == 0:
+            print(f"note: no eligible event in {sec}")
 
     rows = []
     for eid in chosen:
@@ -96,7 +114,8 @@ def main():
             box_lat_min=max(cells.lat.min() - a.margin, -90), box_lat_max=min(cells.lat.max() + a.margin, 90),
             box_lon_min=(lo0 - a.margin) % 360, box_lon_max=(lo1 + a.margin) % 360,
             **{f"init_minus_{d}d": peak_day - pd.Timedelta(days=d) for d in LEADS_DAYS},
-            reason="forced" if eid in a.force else ("record-shattering" if r.record_shattering else "ordinary")))
+            reason="forced" if eid in a.force else ("record-shattering" if r.record_shattering else "ordinary")
+            + (" (sector quota)" if eid in quota else "")))
     cs = pd.DataFrame(rows)
     cs.to_csv(OUT / "case_studies.csv", index=False)
     print(f"\nproposed case studies ({len(cs)}):")

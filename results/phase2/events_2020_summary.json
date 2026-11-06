@@ -1,0 +1,32 @@
+{
+ "params": {
+  "year": 2020,
+  "space_km": 250,
+  "time_h": 12,
+  "eps": 1.0,
+  "min_samples": 5
+ },
+ "per_kind": {
+  "heat": {
+   "records": 25239,
+   "events": 802,
+   "share_in_events": 0.784,
+   "largest_event_cells": 261,
+   "median_event_cells": 10.0
+  },
+  "cold": {
+   "records": 4577,
+   "events": 141,
+   "share_in_events": 0.796,
+   "largest_event_cells": 175,
+   "median_event_cells": 9.0
+  },
+  "wind": {
+   "records": 7337,
+   "events": 277,
+   "share_in_events": 0.574,
+   "largest_event_cells": 174,
+   "median_event_cells": 7.0
+  }
+ }
+}

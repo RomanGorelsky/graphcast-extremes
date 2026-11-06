@@ -8,22 +8,20 @@ Writes to results/phase2/:
   regimes_daily.csv          date, regime per sector
   regimes_summary.json       k, silhouette scores, regime frequencies, explained variance
   regimes_composites.png     mean anomaly map of each regime (what the regimes look like)
+  regimes_composite_<sector>.nc  the maps' data (redraw with 23b_plot_regimes.py)
 and adds regime + regime_frequency to events_2020.csv (regime of the event's peak day
-in its sector; events outside the four sectors get none).
+in its sector; events outside the sectors get none).
 
     python scripts/23_regimes.py
 """
 import argparse
 import json
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import xarray
 
-from extremes import events, paths, regimes
+from extremes import events, paths, phase1, plots, regimes
 
 OUT = paths.RESULTS_DIR / "phase2"
 
@@ -54,25 +52,12 @@ def main():
         {s: {k: v for k, v in r.items() if k not in ("labels", "composites")} for s, r in fits.items()},
         indent=1))
 
-    # composites figure: one row per sector
-    kmax = max(r["k"] for r in fits.values())
-    fig, axes = plt.subplots(len(fits), kmax, figsize=(3.2 * kmax, 2.6 * len(fits)), squeeze=False)
-    for i, (sector, r) in enumerate(fits.items()):
-        comp = r["composites"] / 9.80665                          # m2/s2 -> geopotential metres
-        lim = float(np.abs(comp).max())
-        for j in range(kmax):
-            ax = axes[i, j]
-            ax.set_xticks([]); ax.set_yticks([])
-            if j >= r["k"]:
-                ax.axis("off"); continue
-            c = comp.isel(regime=j)
-            lon = c.lon.values
-            order = np.argsort(np.where(lon >= events.SECTORS[sector]["lon"][0], lon, lon + 360))
-            ax.pcolormesh(np.arange(lon.size), c.lat.values, c.values[:, order], cmap="RdBu_r",
-                          vmin=-lim, vmax=lim, shading="auto")
-            ax.set_title(f"{sector} R{j}  ({r['frequency'][j]:.0%})", fontsize=8)
-    fig.suptitle("Regime composites: 500 hPa height anomaly (gpm), red = high, blue = low", fontsize=10)
-    fig.tight_layout(); fig.savefig(OUT / "regimes_composites.png", dpi=100)
+    # composites: saved per sector (redraw any time with 23b_plot_regimes.py) and plotted
+    for sector, r in fits.items():
+        r["composites"].rename("z500_anomaly").to_netcdf(OUT / f"regimes_composite_{sector}.nc")
+    lsm = xarray.load_dataset(phase1.thresholds_path())["land_sea_mask"]
+    plots.regime_composites({s: r["composites"] for s, r in fits.items()},
+                            {s: r["frequency"] for s, r in fits.items()}, lsm, OUT / "regimes_composites.png")
 
     # regime of each event
     f = OUT / f"events_{a.year}.csv"

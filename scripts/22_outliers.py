@@ -60,7 +60,10 @@ def main():
         e = ev[(ev.kind == kind) & ev.record_shattering].sort_values("if_score", ascending=False)
         print(f"\n{kind}: {len(e)} record-shattering events")
         if len(e):
-            print(e[cols].round(2).to_string(index=False))
+            t = e[cols].copy()
+            num = t.select_dtypes("number").columns
+            t[num] = t[num].round(2)
+            print(t.to_string(index=False))
     print("\nupdated:", f)
 
 
