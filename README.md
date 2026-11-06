@@ -74,6 +74,20 @@ not in git; download them from Drive into `results/phase1/` on the Mac.
 | `23_regimes.py` | PCA + K-means on z500 anomalies per sector | `regimes_*.{csv,json,png}`, regime per event |
 | `24_select_events.py` | rule-based selection | `case_studies.csv`, `candidates_<kind>.csv` |
 
+## Phase 3 — baseline forecasts of the case studies (Colab GPU + Mac)
+
+1. Colab (T4 GPU): `notebooks/03_colab_phase3.ipynb`
+
+| Script | What | Output in `results/phase3/` |
+| --- | --- | --- |
+| `30_check_inputs.py` | our ERA5 inputs vs the authors' example, variable by variable | `input_check.json` |
+| `31_run_case_forecasts.py` | 14 events x starts -1/-3/-5/-7 d, 10-day forecasts, cut to event boxes | `forecasts/*.nc` |
+| `32_run_noharm.py --label R0` | 12 ordinary dates, global RMSE | `noharm.csv` |
+
+2. Mac: download `forecasts/`, `noharm.csv`, `input_check.json`, then `python scripts/33_verify.py`
+   -> `R0_case_metrics.csv`, `R0_summary.json`, `R0_bias_vs_exceedance.png`, `R0_by_start.png`,
+   `event_maps/`.
+
 ## What "done" means for Phase 0
 
 * `pytest` passes on the Mac and in Colab.
