@@ -156,7 +156,7 @@ class Model:
         chunks = []
         for chunk in rollout.chunked_prediction_generator(
                 predictor_fn=self._forward, rng=jax.random.PRNGKey(seed), inputs=inputs,
-                targets_template=template, forcings=forcings):
+                targets_template=template, forcings=forcings, num_steps_per_chunk=1):
             chunk = jax.device_get(chunk)
             if keep is not None:
                 chunk = xarray.Dataset({v: chunk[v] if lev is None else chunk[v].sel(level=lev)
