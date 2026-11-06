@@ -60,7 +60,7 @@ def main():
     m = model.load_model()
     preds, forcings = [], []
     for name_, batch in (("example", ref), ("ours", ours)):
-        i, tg, f = m.extract(batch, 1)          # computes solar radiation if the batch lacks it
+        i, tg, f = m.extract(batch, 1)          # first 3 times; computes solar radiation if missing
         forcings.append(f)
         p = m.forecast(i, tg, f)
         preds.append(p)

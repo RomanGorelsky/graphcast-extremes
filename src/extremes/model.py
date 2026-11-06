@@ -129,7 +129,15 @@ class Model:
                                        targets_template=targets_template, forcings=forcings)
 
     def extract(self, batch: xarray.Dataset, n_steps: int):
-        """Split a dataset (2 input times + n_steps target times) into model arrays."""
+        """Split a dataset (2 input times + n_steps target times) into model arrays.
+
+        The library counts the input times backwards from the END of the batch, so a
+        longer batch is first cut to its first 2 + n_steps times - otherwise later
+        times would silently be used as inputs (found in Phase 3).
+        """
+        if batch.sizes["time"] < 2 + n_steps:
+            raise ValueError(f"batch has {batch.sizes['time']} times, needs 2 + {n_steps}")
+        batch = batch.isel(time=slice(0, 2 + n_steps))
         return data_utils.extract_inputs_targets_forcings(
             batch, target_lead_times=slice("6h", f"{n_steps * 6}h"),
             **dataclasses.asdict(self.task_config))

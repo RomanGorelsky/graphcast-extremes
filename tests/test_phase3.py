@@ -106,3 +106,15 @@ def test_wind_speed_and_precision():
                             coords={"lat": era5.LAT_1DEG, "lon": era5.LON_1DEG})
     b = verify.box_exceedances(fc, th, mask, "wind", times[0], times[-1])
     assert b["n_fc_records"] == 4 and b["n_obs_records"] == 0 and b["precision"] == 0
+
+
+def test_extract_uses_the_first_two_times_of_a_longer_batch():
+    ds = _fake_store()
+    b = inputs.build_batch(ds, pd.Timestamp("2020-06-01T06"), n_steps=3, io_threads=2)   # 5 times
+    stats = synthetic.make_stats(synthetic.make_dataset(n_times=6, res=1.0))
+    m = model.Model(params={}, state={}, model_config=None, task_config=graphcast.TASK_13, stats=stats)
+    i, tg, f = m.extract(b, 1)                                # asks for fewer steps than the batch has
+    assert np.isfinite(i["2m_temperature"].values).all()      # real inputs, not NaN placeholders
+    assert np.array_equal(i["2m_temperature"].isel(batch=0).values,
+                          b["2m_temperature"].isel(batch=0, time=[0, 1]).values)
+    assert tg.sizes["time"] == 1
