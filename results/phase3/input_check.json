@@ -1,0 +1,106 @@
+{
+ "example": "source-era5_date-2022-01-01_res-1.0_levels-13_steps-12.nc",
+ "variables": {
+  "2m_temperature": {
+   "max_abs_diff": 0.0,
+   "rmse": 0.0,
+   "max_diff_over_std": 0.0,
+   "match": true
+  },
+  "mean_sea_level_pressure": {
+   "max_abs_diff": 0.0,
+   "rmse": 0.0,
+   "max_diff_over_std": 0.0,
+   "match": true
+  },
+  "10m_v_component_of_wind": {
+   "max_abs_diff": 0.0,
+   "rmse": 0.0,
+   "max_diff_over_std": 0.0,
+   "match": true
+  },
+  "10m_u_component_of_wind": {
+   "max_abs_diff": 0.0,
+   "rmse": 0.0,
+   "max_diff_over_std": 0.0,
+   "match": true
+  },
+  "total_precipitation_6hr": {
+   "max_abs_diff": 0.0,
+   "rmse": 0.0,
+   "max_diff_over_std": 0.0,
+   "match": true
+  },
+  "temperature": {
+   "max_abs_diff": 0.0,
+   "rmse": 0.0,
+   "max_diff_over_std": 0.0,
+   "match": true
+  },
+  "geopotential": {
+   "max_abs_diff": 0.0,
+   "rmse": 0.0,
+   "max_diff_over_std": 0.0,
+   "match": true
+  },
+  "u_component_of_wind": {
+   "max_abs_diff": 0.0,
+   "rmse": 0.0,
+   "max_diff_over_std": 0.0,
+   "match": true
+  },
+  "v_component_of_wind": {
+   "max_abs_diff": 0.0,
+   "rmse": 0.0,
+   "max_diff_over_std": 0.0,
+   "match": true
+  },
+  "vertical_velocity": {
+   "max_abs_diff": 0.0,
+   "rmse": 0.0,
+   "max_diff_over_std": 0.0,
+   "match": true
+  },
+  "specific_humidity": {
+   "max_abs_diff": 0.0,
+   "rmse": 0.0,
+   "max_diff_over_std": 0.0,
+   "match": true
+  },
+  "toa_incident_solar_radiation": "missing in our batch (model computes it)",
+  "geopotential_at_surface": {
+   "max_abs_diff": 0.0,
+   "rmse": 0.0,
+   "max_diff_over_std": 0.0,
+   "match": true
+  },
+  "land_sea_mask": {
+   "max_abs_diff": 0.0,
+   "rmse": 0.0,
+   "max_diff_over_std": 0.0,
+   "match": true
+  }
+ },
+ "nan_example": {
+  "inputs": {},
+  "forcings": {},
+  "forecast": 0
+ },
+ "nan_ours": {
+  "inputs": {},
+  "forcings": {},
+  "forecast": 0
+ },
+ "tisr_vs_example": {
+  "max_abs_diff": 1443.6201171875,
+  "rmse": 81.58608102057627,
+  "max_diff_over_std": 0.0009534211467365671,
+  "nan_ours": 0
+ },
+ "one_step_prediction_max_diff": {
+  "2m_temperature": 0.1630859375,
+  "10m_u_component_of_wind": 0.14928674697875977
+ },
+ "same_output_grid": true,
+ "all_match": true
+}

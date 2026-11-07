@@ -88,6 +88,26 @@ not in git; download them from Drive into `results/phase1/` on the Mac.
    -> `R0_case_metrics.csv`, `R0_summary.json`, `R0_bias_vs_exceedance.png`, `R0_by_start.png`,
    `event_maps/`.
 
+## Phase 4 — deterministic probabilistic bias correction (Colab GPU + Mac)
+
+1. Colab (T4 GPU, several sessions): `notebooks/04_colab_phase4.ipynb`
+
+| Script | What | Output in `results/phase4/` |
+| --- | --- | --- |
+| `40_hindcast_plan.py` | start dates 2016-2019, +-7 d around each event start | `hindcast_plan.csv` |
+| `41_run_hindcasts.py` | ~780 10-day hindcasts, cut to event boxes (background, resumable) | `hindcasts/<event>/*.nc` |
+| `42_truth_cache.py` | ERA5 truth for all hindcast times, read once | `truth/<event>.nc` |
+
+2. Mac: download `hindcasts/`, `truth/`, `hindcast_plan.csv`, then
+
+```bash
+python scripts/43_apply_pbc.py                       # Debias, Persistence, PBC -> corrected forecasts
+python scripts/33_verify.py --label Debias --forecasts results/phase4/forecasts_Debias --no-maps
+python scripts/33_verify.py --label Persistence --forecasts results/phase4/forecasts_Persistence --no-maps
+python scripts/33_verify.py --label PBC --forecasts results/phase4/forecasts_PBC --no-maps
+python scripts/44_compare.py                         # R0 vs Debias vs Persistence vs PBC
+```
+
 ## What "done" means for Phase 0
 
 * `pytest` passes on the Mac and in Colab.
