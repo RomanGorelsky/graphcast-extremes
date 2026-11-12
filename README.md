@@ -108,6 +108,46 @@ python scripts/33_verify.py --label PBC --forecasts results/phase4/forecasts_PBC
 python scripts/44_compare.py                         # R0 vs Debias vs Persistence vs PBC
 ```
 
+## Cluster (MBZUAI Shared-Cluster-v3, H100)
+
+Connect with `ssh shared-cluster-v3` (see the cluster user guide). Heavy work runs only as
+jobs (`sbatch`), never directly on the login node. Once, on the login node:
+
+```bash
+git clone https://github.com/RomanGorelsky/graphcast-extremes.git ~/graphcast-extremes
+cd ~/graphcast-extremes
+bash scripts/setup_cluster.sh           # ~10 min: Python 3.12 env ~/venvs/extremes + model
+sbatch slurm/phase0_check.sbatch        # GPU check, tests, smoke test, speed
+squeue --me                             # wait until the job is gone, then:
+cat slurm/logs/phase0_*.out
+```
+
+Phase 4 on the cluster (`git pull` first to get the latest code):
+
+```bash
+python scripts/40_hindcast_plan.py      # light, fine on the login node
+sbatch slurm/phase4_hindcasts.sbatch    # 4 GPUs share the ~780 hindcasts; resubmit to resume
+sbatch slurm/phase4_truth.sbatch        # ERA5 truth, no GPU, may run at the same time
+```
+
+| Job file | What | Log |
+| --- | --- | --- |
+| `slurm/phase0_check.sbatch` | 1 GPU, ~10 min | `slurm/logs/phase0_<job>.out` |
+| `slurm/phase4_hindcasts.sbatch` | 4 jobs x 1 GPU, up to 12 h each | `slurm/logs/hind_<job>_<0-3>.out` |
+| `slurm/phase4_truth.sbatch` | CPU only, 128 GB | `slurm/logs/truth_<job>.out` |
+
+Results land in `~/graphcast-extremes/results` on the cluster, which is copied to S3
+automatically. To bring them to the Mac (in Terminal, from the repository folder; replace
+`<user>` with your cluster username):
+
+```bash
+aws s3 sync s3://shared-cluster-november/homes/<user>/graphcast-extremes/results/phase4 results/phase4 --region ap-northeast-1
+```
+
+Hindcasts already made in Colab can be uploaded instead of recomputed (they are skipped):
+`aws s3 sync results/phase4/hindcasts s3://shared-cluster-november/homes/<user>/graphcast-extremes/results/phase4/hindcasts --region ap-northeast-1`.
+Deleting a file on the cluster also deletes it from S3 - there is no recycle bin.
+
 ## What "done" means for Phase 0
 
 * `pytest` passes on the Mac and in Colab.

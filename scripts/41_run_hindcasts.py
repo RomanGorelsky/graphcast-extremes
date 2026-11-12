@@ -9,6 +9,10 @@ Resumable (finished files are skipped). Run it in the background like Phase 3:
 
     nohup python scripts/41_run_hindcasts.py > results/phase4/run41.log 2>&1 &
     python scripts/41_run_hindcasts.py --max-runs 20      # a fixed batch, then exit
+
+On the cluster several GPUs share the work: job k of n takes every n-th start date
+of the plan (a fixed split, so restarted jobs never duplicate each other's runs):
+    python scripts/41_run_hindcasts.py --shard 0 --num-shards 4
 """
 import argparse
 import gc
@@ -25,17 +29,24 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--max-runs", type=int, default=None)
     ap.add_argument("--io-threads", type=int, default=32)
+    ap.add_argument("--shard", type=int, default=0, help="this job's share (0 .. num-shards-1)")
+    ap.add_argument("--num-shards", type=int, default=1)
     a = ap.parse_args()
+    if not 0 <= a.shard < a.num_shards:
+        ap.error("--shard must be between 0 and --num-shards - 1")
     plan = pd.read_csv(phase4.OUT / "hindcast_plan.csv", parse_dates=["init"])
     cases = phase3.case_studies().set_index("event_id")
     todo = []
     for r in plan.itertuples():
+        if r.Index % a.num_shards != a.shard:
+            continue
         missing = [e for e in r.event_ids.split() if not phase4.hindcast_path(e, r.init).exists()]
         if missing:
             todo.append((r.init, missing))
     if a.max_runs:
         todo = todo[:a.max_runs]
-    print(f"{len(plan)} planned runs, {len(todo)} to do now", flush=True)
+    share = f" (share {a.shard + 1} of {a.num_shards})" if a.num_shards > 1 else ""
+    print(f"{len(plan)} planned runs, {len(todo)} to do now{share}", flush=True)
     if not todo:
         return
 

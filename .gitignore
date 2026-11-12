@@ -13,3 +13,4 @@ results/**/*.zarr
 *.egg-info/
 results/**/*.csv.gz
 results/**/yearly/
+slurm/logs/
