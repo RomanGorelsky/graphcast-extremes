@@ -1,0 +1,15 @@
+heat-001: 488 time steps for 84 hindcast starts in 50 s
+heat-002: 488 time steps for 84 hindcast starts in 43 s
+heat-025: 488 time steps for 84 hindcast starts in 43 s
+heat-027: 488 time steps for 84 hindcast starts in 43 s
+cold-001: 488 time steps for 84 hindcast starts in 41 s
+cold-009: 488 time steps for 84 hindcast starts in 45 s
+cold-010: 488 time steps for 84 hindcast starts in 43 s
+wind-001: 488 time steps for 84 hindcast starts in 43 s
+wind-010: 488 time steps for 84 hindcast starts in 43 s
+wind-013: 488 time steps for 84 hindcast starts in 47 s
+heat-004: 488 time steps for 84 hindcast starts in 40 s
+wind-004: 488 time steps for 84 hindcast starts in 39 s
+wind-012: 488 time steps for 84 hindcast starts in 42 s
+cold-003: 488 time steps for 84 hindcast starts in 41 s
+done: /content/drive/MyDrive/graphcast-extremes/results/phase4/truth
