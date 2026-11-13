@@ -53,10 +53,13 @@ def stage_month(wb2, arco, year: int, month: int, io_threads: int) -> None:
         parts.update(load_fluxes(arco, t, io_threads))
         ds = xarray.Dataset({v: da.drop_vars([c for c in da.coords if c not in ("time", "level", "lat", "lon")])
                              for v, da in parts.items()}).astype(np.float32)
-        ds = ds.chunk({"time": 1})
-        for v in ds.data_vars:
-            ds[v].encoding = {}
+        # drop the storage settings inherited from the source stores (coordinates
+        # included): their old-format compression is refused by the format we write
+        ds = ds.drop_encoding().chunk({"time": 1})
         ds.to_zarr(tmp, mode="w") if i == 0 else ds.to_zarr(tmp, append_dim="time")
+        if i == 0:
+            print(f"  {year}-{month:02d}: first {len(t)} times in {time.perf_counter() - t0:.0f} s "
+                  f"(month: {len(times)})", flush=True)
     tmp.rename(final)
     print(f"{year}-{month:02d}: {len(times)} times in {time.perf_counter() - t0:.0f} s", flush=True)
 
