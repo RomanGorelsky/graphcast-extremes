@@ -8,8 +8,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=128G
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
 #SBATCH --time=02:00:00
 #SBATCH --output=slurm/logs/p5bench_%j.out
 #SBATCH --error=slurm/logs/p5bench_%j.out

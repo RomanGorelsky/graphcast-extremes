@@ -1,7 +1,8 @@
 #!/bin/bash
 # Phase 5, step 1: stage the training data (2010-2014) and the validation year (2015).
 # 3 CPU jobs (cluster limit: 3 running, 5 submitted, 12 h each), two years each, one
-# after the other (~2.5 h per year). Resumable per month: if a job stops, submit again.
+# after the other (~2.5 h per year). 4 CPUs each: the work waits on downloads, and the
+# GPU machines have only 96 CPUs to share. Resumable per month: if a job stops, submit again.
 #
 #   sbatch slurm/phase5_stage.sbatch
 #   squeue --me
@@ -12,8 +13,8 @@
 #SBATCH --array=0-2
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
 #SBATCH --time=12:00:00
 #SBATCH --output=slurm/logs/stage_%A_%a.out
 #SBATCH --error=slurm/logs/stage_%A_%a.out
