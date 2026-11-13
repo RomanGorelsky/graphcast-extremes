@@ -30,21 +30,15 @@ def debias(F: np.ndarray, H: np.ndarray, O: np.ndarray) -> np.ndarray:
     return F - bias
 
 
-def persistence(F: np.ndarray, O0: np.ndarray, H: np.ndarray, O: np.ndarray, H0: np.ndarray) -> np.ndarray:
-    """Regression O = a + b H + c O0 per lead and cell, applied to (F, O0).
-
-    F (K, ...); O0 (...) = observed at the forecast's start;
-    H, O (J, K, ...); H0 (J, ...) = observed at each training hindcast's start.
-    """
-    J, K = H.shape[:2]
+def _fit(O0, H, O, H0):
+    """Least-squares fit of O = a + b H + c O0 per lead and cell (centred predictors)."""
     x1 = H
     x2 = np.broadcast_to(H0[:, None], H.shape)
     ok = np.isfinite(x1) & np.isfinite(x2) & np.isfinite(O)
     n = ok.sum(0)
-    w = ok.astype(float)
-    # centre the predictors (per lead and cell) so the intercept separates cleanly
+
     def mean(x):
-        return np.where(n > 0, np.nansum(np.where(ok, x, 0) * w, 0) / np.maximum(n, 1), 0.0)
+        return np.where(n > 0, np.nansum(np.where(ok, x, 0), 0) / np.maximum(n, 1), 0.0)
     m1, m2, my = mean(x1), mean(x2), mean(O)
     d1 = np.where(ok, x1 - m1, 0.0)
     d2 = np.where(ok, x2 - m2, 0.0)
@@ -55,9 +49,37 @@ def persistence(F: np.ndarray, O0: np.ndarray, H: np.ndarray, O: np.ndarray, H0:
     det = s11r * s22r - s12 * s12
     b = (s22r * s1y - s12 * s2y) / det
     c = (s11r * s2y - s12 * s1y) / det
+    resid = np.where(ok, dy - b * d1 - c * d2, 0.0)
+    sigma = np.sqrt((resid ** 2).sum(0) / np.maximum(n - 3, 1))      # 3 fitted numbers: a, b, c
+    return dict(n=n, m1=m1, m2=m2, my=my, b=b, c=c, sigma=sigma)
+
+
+def persistence(F: np.ndarray, O0: np.ndarray, H: np.ndarray, O: np.ndarray, H0: np.ndarray,
+                return_spread: bool = False):
+    """Regression O = a + b H + c O0 per lead and cell, applied to (F, O0).
+
+    F (K, ...); O0 (...) = observed at the forecast's start;
+    H, O (J, K, ...); H0 (J, ...) = observed at each training hindcast's start.
+    With return_spread=True also returns the typical size (standard deviation) of the
+    regression's error on the training cases - NaN where there are too few samples.
+    """
+    f = _fit(O0, H, O, H0)
     O0b = np.broadcast_to(O0, F.shape)
-    pred = my + b * (F - m1) + c * (O0b - m2)
-    return np.where(n >= MIN_SAMPLES, pred, F)
+    pred = f["my"] + f["b"] * (F - f["m1"]) + f["c"] * (O0b - f["m2"])
+    enough = f["n"] >= MIN_SAMPLES
+    out = np.where(enough, pred, F)
+    if return_spread:
+        return out, np.where(enough, f["sigma"], np.nan)
+    return out
+
+
+def debias_spread(H: np.ndarray, O: np.ndarray) -> np.ndarray:
+    """Typical size (standard deviation) of the hindcast errors H - O, per lead and cell."""
+    err = H - O
+    n = np.sum(np.isfinite(err), 0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        sd = np.nanstd(err, 0, ddof=1)
+    return np.where(n >= MIN_SAMPLES, sd, np.nan)
 
 
 def correct(F, O0, H, O, H0) -> dict:

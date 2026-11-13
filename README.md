@@ -108,6 +108,13 @@ python scripts/33_verify.py --label PBC --forecasts results/phase4/forecasts_PBC
 python scripts/44_compare.py                         # R0 vs Debias vs Persistence vs PBC
 ```
 
+3. Mac: two checks of how reliable the Phase 4 result is (no GPU, minutes)
+
+| Script | Question | Output in `results/phase4/` |
+| --- | --- | --- |
+| `45_robustness.py` | Do the changes vs R0 hold across events, or does one event drive them? (paired, bootstrap over events, leave-one-event-out) | `robustness.csv`, `robustness_events.csv`, `robustness_events.png` |
+| `46_record_probability.py` | Does a probabilistic version (spread learned from the hindcasts) give useful record probabilities? (Brier score, warnings, reliability) | `record_probability.csv`, `record_probability_cases.csv`, `record_probability.png` |
+
 ## Cluster (MBZUAI Shared-Cluster-v3, H100)
 
 Connect with `ssh shared-cluster-v3` (see the cluster user guide). Heavy work runs only as
