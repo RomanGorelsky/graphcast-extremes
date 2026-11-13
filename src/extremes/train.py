@@ -204,12 +204,22 @@ def train(cfg: TrainConfig, out: Path, sampler: Sampler, val_sampler: Sampler, m
     pool = cf.ThreadPoolExecutor(max_workers=1)
     inits_cache = {}
 
+    def load_clean(pick, n):
+        """Load a batch; if any value is missing (NaN), draw other start times."""
+        for _ in range(10):
+            b = sampler.batch(pick, n)
+            if all(np.isfinite(np.asarray(v.values)).all() for part in b for v in part.data_vars.values()):
+                return b
+            log(f"[{cfg.run}] missing values in a sample starting {list(pick)} - drawing others")
+            pick = inits_cache[n][rng.choice(len(inits_cache[n]), cfg.batch_size, replace=False)]
+        raise ValueError("ten batches in a row with missing values - check the staged data")
+
     def draw(step):
         n = cfg.n_steps(step)
         if n not in inits_cache:
             inits_cache[n] = sampler.inits(n)
         pick = inits_cache[n][rng.choice(len(inits_cache[n]), cfg.batch_size, replace=False)]
-        return pool.submit(sampler.batch, pick, n)
+        return pool.submit(load_clean, pick, n)
 
     end = cfg.total_steps() if max_steps is None else min(cfg.total_steps(), start + max_steps)
     nxt = draw(start) if start < end else None

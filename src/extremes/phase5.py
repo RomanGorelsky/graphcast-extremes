@@ -76,6 +76,19 @@ def flux_stats(ds: xarray.Dataset, every: int = 7) -> tuple[xarray.Dataset, xarr
             xarray.Dataset({v: ((), np.float32(s)) for v, s in std.items()}))
 
 
+def fill_isolated_nans(a: np.ndarray) -> np.ndarray:
+    """Replace NaN cells of a (lat, lon) field by the mean of their valid neighbours
+    (3 x 3 box, longitude wraps around). The ARCO hourly fluxes have a few isolated
+    blank cells (Phase 5 scan: 33 single cells in 6 years)."""
+    out = np.array(a, dtype=np.float64, copy=True)
+    for i, j in zip(*np.where(np.isnan(out))):
+        rows = slice(max(i - 1, 0), min(i + 2, out.shape[0]))
+        cols = [(j + d) % out.shape[1] for d in (-1, 0, 1)]
+        box = np.asarray(a, np.float64)[rows][:, cols]
+        out[i, j] = np.nanmean(box) if np.isfinite(box).any() else 0.0
+    return out.astype(np.asarray(a).dtype)
+
+
 def staged_years() -> list[int]:
     return sorted({int(p.name[:4]) for p in STAGED.glob("????-??.zarr")})
 

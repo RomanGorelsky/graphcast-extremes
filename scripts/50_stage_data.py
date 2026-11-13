@@ -30,6 +30,9 @@ def load_fluxes(arco: xarray.Dataset, t: pd.DatetimeIndex, io_threads: int) -> d
     for ours, name in phase5.FLUX_SOURCE.items():
         x = era5.load_1deg(arco, name, hourly, "subsample", io_threads)            # (time*6, lat, lon)
         a = np.asarray(x.values, np.float64).reshape(len(t), 6, x.sizes["lat"], x.sizes["lon"]).sum(1)
+        for k in range(len(a)):                       # a few isolated blank cells in ARCO
+            if np.isnan(a[k]).any():
+                a[k] = phase5.fill_isolated_nans(a[k])
         out[ours] = xarray.DataArray(a.astype(np.float32), dims=("time", "lat", "lon"),
                                      coords={"time": t.values, "lat": x.lat.values, "lon": x.lon.values})
     return out
