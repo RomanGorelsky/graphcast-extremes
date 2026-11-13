@@ -126,6 +126,8 @@ def load_1deg(ds: xarray.Dataset, var: str, times, method: str,
         da = da.isel(lat=slice(None, None, 4), lon=slice(None, None, 4))
     with dask.config.set(scheduler="threads", num_workers=io_threads):
         da = da.load()
+    if method == "native":                                     # take the store's grid as it is
+        return da                                              # (Phase 5 staged store, tests)
     if da.sizes["lat"] == 181:                                 # already 1 degree
         return da
     if method == "as-stored":

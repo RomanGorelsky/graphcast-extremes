@@ -49,24 +49,38 @@ def _static(ds: xarray.Dataset, var: str, method: str) -> xarray.DataArray:
 
 
 def build_batch(ds: xarray.Dataset, init, n_steps: int, method: str = "subsample",
-                statics: dict | None = None, io_threads: int = 32) -> xarray.Dataset:
+                statics: dict | None = None, io_threads: int = 32, truth: bool = False,
+                extra: tuple = ()) -> xarray.Dataset:
     """Example-format dataset for a forecast starting at `init` with `n_steps` 6-h steps.
 
     `statics` can pass pre-loaded static fields ({name: DataArray(lat, lon)}) to avoid
     re-reading them for every forecast.
+    truth=True (training, Phase 5): the forecast times hold the real ERA5 values instead
+    of NaN placeholders. `extra`: further target-only variables (the Phase 5 fluxes),
+    read at the forecast times only (NaN at the input times, which the model never uses).
     """
     t_in, t_out = times_for(init, n_steps)
     t_all = t_in.append(t_out)
 
+    def with_targets(var, src):
+        if truth:
+            return era5.load_1deg(src, var, t_all.values, method, io_threads)
+        x = era5.load_1deg(src, var, t_in.values, method, io_threads)            # (time, [level,] lat, lon)
+        pad = xarray.full_like(x.isel(time=[0] * len(t_out)), np.nan)
+        return xarray.concat([x, pad.assign_coords(time=t_out.values)], "time")
+
     data = {}
     for var in SURFACE:
-        x = era5.load_1deg(ds, var, t_in.values, method, io_threads)            # (time, lat, lon)
-        pad = xarray.full_like(x.isel(time=[0] * len(t_out)), np.nan)
-        data[var] = xarray.concat([x, pad.assign_coords(time=t_out.values)], "time")
+        data[var] = with_targets(var, ds)
     for var in ATMOS:
-        x = era5.load_1deg(ds.sel(level=LEVELS), var, t_in.values, method, io_threads)  # (time, level, lat, lon)
-        pad = xarray.full_like(x.isel(time=[0] * len(t_out)), np.nan)
-        data[var] = xarray.concat([x, pad.assign_coords(time=t_out.values)], "time")
+        data[var] = with_targets(var, ds.sel(level=LEVELS))
+    for var in extra:
+        x = era5.load_1deg(ds, var, t_out.values, method, io_threads) if truth else None
+        if x is None:
+            x = xarray.full_like(data[SURFACE[0]].isel(time=[0] * len(t_out)), np.nan).assign_coords(
+                time=t_out.values)
+        pad = xarray.full_like(x.isel(time=[0] * len(t_in)), np.nan).assign_coords(time=t_in.values)
+        data[var] = xarray.concat([pad, x], "time")
     if TISR in ds:
         data[TISR] = era5.load_1deg(ds, TISR, t_all.values, method, io_threads)
     statics = statics or {v: _static(ds, v, method) for v in STATIC}

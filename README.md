@@ -115,6 +115,27 @@ python scripts/44_compare.py                         # R0 vs Debias vs Persisten
 | `45_robustness.py` | Do the changes vs R0 hold across events, or does one event drive them? (paired, bootstrap over events, leave-one-event-out) | `robustness.csv`, `robustness_events.csv`, `robustness_events.png` |
 | `46_record_probability.py` | Does a probabilistic version (spread learned from the hindcasts) give useful record probabilities? (Brier score, warnings, reliability) | `record_probability.csv`, `record_probability_cases.csv`, `record_probability.png` |
 
+## Phase 5 — physics-constrained fine-tuning (cluster)
+
+GraphCast_small gets 7 extra outputs (6-h evaporation and radiation / heat fluxes) and Sha et
+al.'s (2025) conservation schemes inside the forecast loop (`src/extremes/physics.py`,
+`finetune.py`, `train.py`). Four runs with identical data, steps and learning rate:
+R1 control (new outputs, no schemes) | R2 + dry-air mass | R3 + moisture budget | R4 + energy.
+
+Mac first (offline tests, include a tiny training run): `python -m pytest -q tests`.
+On the cluster (`git pull`, then once `pip install optax` in the environment):
+
+```bash
+sbatch slurm/phase5_stage.sbatch        # 6 CPU jobs: 2010-2014 training, 2015 validation (~34 GB/year)
+sbatch slurm/phase5_benchmark.sbatch    # after staging: flux stats, R0 score, 100-step speed test
+sbatch slurm/phase5_train.sbatch        # R1-R4 on 4 GPUs; resubmit to resume
+```
+
+| Script | What | Output |
+| --- | --- | --- |
+| `50_stage_data.py` | 1-degree training data, month by month (resumable) | `data/phase5/era5_1deg/` |
+| `51_train.py` | one run (`--run R1..R4`), or `--baseline` for R0 | `results/phase5/runs/<run>/` (train/validation logs, checkpoint, `residuals.csv`) |
+
 ## Cluster (MBZUAI Shared-Cluster-v3, H100)
 
 Connect with `ssh shared-cluster-v3` (see the cluster user guide). Heavy work runs only as
