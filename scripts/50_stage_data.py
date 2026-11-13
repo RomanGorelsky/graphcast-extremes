@@ -80,7 +80,7 @@ def main():
         print("written:", phase5.STAGED / "statics.zarr")
     if a.year is not None:
         wb2 = era5.open_store(era5.WB2_ERA5)
-        arco = era5.open_store(phase5.ARCO_ERA5)
+        arco = phase5.open_arco()
         for m in a.months:
             stage_month(wb2, arco, a.year, m, a.io_threads)
         print(f"{a.year} done", flush=True)

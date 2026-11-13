@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import xarray
 
-from . import paths, physics
+from . import era5, paths, physics
 
 OUT = paths.RESULTS_DIR / "phase5"
 STAGED = paths.DATA_DIR / "phase5" / "era5_1deg"
@@ -32,6 +32,18 @@ FLUX_SOURCE = {
     physics.SFC_SENSIBLE: "surface_sensible_heat_flux",
     physics.SFC_LATENT: "surface_latent_heat_flux",
 }
+
+
+def open_arco(concurrency: int = 32) -> xarray.Dataset:
+    """The ARCO store, only the 7 flux variables, WITHOUT dask.
+
+    The store holds 273 variables hourly since 1940; opened with dask (as the much
+    smaller WeatherBench2 store is) the read plan alone needs > 64 GB. Without dask,
+    xarray reads exactly the chunks a selection touches, zarr fetching them in parallel."""
+    import zarr
+    zarr.config.set({"async.concurrency": concurrency})
+    ds = xarray.open_zarr(ARCO_ERA5, storage_options={"token": "anon"}, chunks=None)
+    return era5.standardise(ds[list(FLUX_SOURCE.values())])
 
 
 def month_path(year: int, month: int) -> Path:
