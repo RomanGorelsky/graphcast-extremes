@@ -3,8 +3,8 @@
 Two stages, as GraphCast's own training: (1) one-step forecasts with a warm-up then
 cosine-decaying learning rate; (2) a short multi-step stage (the model's own outputs
 are fed back for `rollout` steps) at a small constant learning rate, so the schemes
-act on what the model produces itself. AdamW as in GraphCast (b2 = 0.95, weight decay
-0.1). Every `eval_every` steps a fixed validation set (held-out year) is scored:
+act on what the model produces itself. AdamW (b2 = 0.95 as in GraphCast), no weight
+decay, learning rates for fine-tuning rather than training from scratch. Every `eval_every` steps a fixed validation set (held-out year) is scored:
   loss       - full loss (incl. the new fluxes)
   core_loss  - only the variables R0 also predicts: comparable across R0-R4
 Checkpoints every `ckpt_every` steps; a job that is stopped resumes where it was.
@@ -46,11 +46,13 @@ class TrainConfig:
     stage1_steps: int = 6000
     stage2_steps: int = 1000
     rollout: int = 4                     # stage-2 forecast steps (6 h each)
-    peak_lr: float = 1e-4
-    final_lr: float = 3e-6
+    # fine-tuning a trained model: small steps, no weight decay (decay would pull every
+    # pretrained weight toward zero, degrading R1-R4 alike vs R0 for no physical reason)
+    peak_lr: float = 3e-5
+    final_lr: float = 1e-6
     warmup: int = 300
-    stage2_lr: float = 3e-6
-    weight_decay: float = 0.1
+    stage2_lr: float = 1e-6
+    weight_decay: float = 0.0
     eval_every: int = 250
     n_val: int = 32
     ckpt_every: int = 250

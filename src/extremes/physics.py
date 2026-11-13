@@ -25,6 +25,14 @@ Units (ERA5 conventions, all fluxes positive DOWNWARD, accumulated over 6 h):
 Differences from the paper (state in the report): specific humidity instead of specific
 total water; top level 50 hPa instead of 1 hPa; constants below.
 
+A consequence of fixed pressure levels (GraphCast has no surface-pressure output): the
+column mass sum(dp)/g is the same at every step, so dry-air mass = column mass - water
+vapour, and conserving dry-air mass is the same as keeping GLOBAL WATER VAPOUR constant.
+With the moisture scheme on top, global precipitation then equals global evaporation in
+every 6-h step. ERA5 itself deviates from this by ~0.2 % of the vapour (~7 % of the 6-h
+precipitation; 52_check_staged.py). In Sha et al.'s model levels the column mass follows
+surface pressure, so there the two schemes are distinct. Report R2 as "global vapour fixed".
+
 Works on xarray Datasets whose arrays are numpy (tests) or JAX (training).
 """
 from __future__ import annotations
@@ -164,6 +172,10 @@ def fix_moisture(prev: xarray.Dataset, fc: xarray.Dataset) -> xarray.Dataset:
     p_target = -dmv / RHO_WATER - _gsum(fc[EVAP], area)               # m3 of water, global
     p_now = _gsum(fc[PRECIP], area)
     ratio = p_target / p_now
+    # safeguard (not in the paper): a badly drifting forecast could ask for negative or
+    # exploding precipitation; keep the ratio in [0, 10] (real data: ~0.9-1.1)
+    ratio = ratio.where(ratio > 0.0, 0.0)
+    ratio = ratio.where(ratio < 10.0, 10.0)
     out = fc.copy()
     out[PRECIP] = (fc[PRECIP] * ratio).astype(fc[PRECIP].dtype).transpose(*fc[PRECIP].dims)
     return out
