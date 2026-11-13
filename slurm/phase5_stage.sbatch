@@ -20,7 +20,7 @@ set -uo pipefail
 source slurm/env.sh
 export JAX_PLATFORMS=cpu
 
-YEAR=$((2010 + SLURM_ARRAY_TASK_ID))
+YEAR=$((2010 + SLURM_ARRAY_TASK_ID))   # 0-4 -> 2010-2014 (training), 5 -> 2015 (validation)
 if [ "$SLURM_ARRAY_TASK_ID" -eq 0 ] && [ ! -d data/phase5/era5_1deg/statics.zarr ]; then
   python scripts/50_stage_data.py --statics
 fi
