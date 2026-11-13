@@ -36,7 +36,9 @@ def _with_fluxes(ds, seed=1):
             physics.SFC_LATENT: rng.normal(-80, 30, shp) * SIX_H}
     for k, a in vals.items():
         ds[k] = (("batch", "time", "lat", "lon"), a.astype(np.float32))
-    ds["total_precipitation_6hr"] = np.abs(ds["total_precipitation_6hr"]) * 1e-3 + 1e-4
+    # realistic precipitation: about as large as evaporation (ERA5: +0.74 vs -0.73 mm / 6 h)
+    ds["total_precipitation_6hr"] = (("batch", "time", "lat", "lon"),
+                                     np.abs(rng.normal(0.0015, 0.0007, shp)).astype(np.float32))
     ds["specific_humidity"] = np.abs(ds["specific_humidity"]) * 1e-2
     return ds
 

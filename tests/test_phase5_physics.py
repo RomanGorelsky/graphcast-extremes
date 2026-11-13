@@ -103,6 +103,18 @@ def test_moisture_budget_closes_by_changing_precipitation_only(case):
     assert np.allclose(ratio, ratio.flat[0], rtol=1e-5)          # one global ratio
 
 
+def test_precipitation_ratio_is_capped_for_a_drifting_forecast(case):
+    prev, fc, phi_s = case
+    fc2 = fc.copy()
+    fc2[ph.PRECIP] = fc[ph.PRECIP] * 1e-3                 # far too little rain to close the budget
+    out = ph.fix_moisture(prev, fc2)
+    np.testing.assert_allclose((out[ph.PRECIP] / fc2[ph.PRECIP]).values, 10.0, rtol=1e-5)
+    fc3 = fc.copy()
+    fc3[ph.EVAP] = -fc[ph.EVAP] * 50                      # budget would need negative rain
+    out = ph.fix_moisture(prev, fc3)
+    assert float(out[ph.PRECIP].min()) == 0.0 and float(out[ph.PRECIP].max()) == 0.0
+
+
 def test_energy_closes_by_changing_temperature_only(case):
     prev, fc, phi_s = case
     out = ph.fix_energy(prev, fc, phi_s)
