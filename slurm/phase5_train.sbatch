@@ -1,7 +1,8 @@
 #!/bin/bash
 # Phase 5, step 3: the four fine-tuning runs, one GPU each (at most 2 at a time), all with identical data,
 # steps and learning rate:  R1 control | R2 + dry-air mass | R3 + moisture | R4 + energy
-# Each run saves a checkpoint every 250 steps; after a time-out simply submit again.
+# Each run saves a checkpoint every 250 steps. Cluster limit: 12 h per job - a run that
+# needs longer stops at 12 h; submit again and it continues from its last checkpoint.
 #
 #   sbatch slurm/phase5_train.sbatch
 #   tail -n 2 slurm/logs/train_*_*.out
@@ -14,7 +15,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
-#SBATCH --time=24:00:00
+#SBATCH --time=12:00:00
 #SBATCH --output=slurm/logs/train_%A_%a.out
 #SBATCH --error=slurm/logs/train_%A_%a.out
 set -uo pipefail
