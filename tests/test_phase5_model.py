@@ -126,17 +126,23 @@ def test_training_runs_lowers_nothing_to_nan_and_resumes(tmp_path):
     ds = _with_fluxes(synthetic.make_dataset(n_times=8))
     init = finetune.grow_params(_old_params(ds, stats), OLD_TASK, NEW_TASK)
     cfg = train.TrainConfig(run="R4", batch_size=2, stage1_steps=3, stage2_steps=2, rollout=2,
-                            warmup=1, eval_every=5, n_val=2, ckpt_every=2, use_bf16=False)
+                            warmup=1, eval_every=5, n_val=2, ckpt_every=2, use_bf16=False,
+                            long_horizons=(2, 20), n_val_long=2, eval_long_every=100)
     out = tmp_path / "run"
     train.train(cfg, out, sampler, sampler, MC, NEW_TASK, stats, init, OLD_TASK.target_variables,
                 log=lambda *a: None, max_steps=3)
     assert (out / "checkpoint.pkl").exists()
+    assert train.load(out / "params_stage1.pkl")["step"] == 3            # end of stage 1 kept
     params = train.train(cfg, out, sampler, sampler, MC, NEW_TASK, stats, init, OLD_TASK.target_variables,
                          log=lambda *a: None)
     lines = pd.read_json(out / "train.jsonl", lines=True)
     val = pd.read_json(out / "validation.jsonl", lines=True)
     assert np.isfinite(lines.loss).all() and val.step.max() == 5
     assert train.load(out / "checkpoint.pkl")["step"] == 5
+    long = pd.read_json(out / "validation_long.jsonl", lines=True)
+    assert sorted(long.step.unique()) == [0, 3, 5]                     # start, end of stage 1, end
+    assert set(long.horizon_h) == {12}                                  # 20 steps: no room -> skipped
+    assert np.isfinite(long.val_core_loss).all()
     res = train.residual_check(params, MC, NEW_TASK, stats, finetune.RUNS["R4"], sampler,
                                sampler.inits(2)[:1], n_steps=2, use_bf16=False)
     assert (res[["mass", "energy"]] < 1e-5).all().all()

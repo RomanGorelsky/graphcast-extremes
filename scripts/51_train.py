@@ -8,9 +8,10 @@
 Starts from the GraphCast_small checkpoint with the decoder grown by the 7 flux outputs
 (finetune.grow_params). Needs the staged data (50_stage_data.py) and the flux stats.
 Writes results/phase5/runs/<run>/: config.json, train.jsonl, validation.jsonl,
-checkpoint.pkl (resume state), and at the end params_<run>.ckpt (the authors'
-checkpoint format, with the extended task) and residuals.csv (budget violations of
-4-step forecasts from 8 validation starts).
+checkpoint.pkl (resume state), validation_long.jsonl (1-day and 5-day forecasts),
+params_stage1.pkl, and at the end params_<run>.ckpt and params_<run>_stage1.ckpt (the
+authors' checkpoint format, with the extended task) and residuals.csv (budget
+violations of 4-step forecasts from 8 validation starts).
 """
 import argparse
 import dataclasses
@@ -66,21 +67,15 @@ def main():
     statics = phase5.STAGED / "statics.zarr"
     val = train.Sampler(phase5.month_files([cfg.val_year]), task, [cfg.val_year], statics_store=statics)
     if a.baseline:
-        loss_fn = train.make_loss(m.model_config, task, stats, schemes, cfg.use_bf16)
-        eval_fn = train.make_eval(loss_fn)
-        inits = val.inits(1)
-        inits = inits[np.linspace(0, len(inits) - 1, cfg.n_val).astype(int)]
-        tot, diag_sum, n = 0.0, {}, 0
-        for i in range(0, len(inits), cfg.batch_size):
-            loss, diag = eval_fn(params, {}, *val.batch(inits[i:i + cfg.batch_size], 1))
-            tot += float(loss); n += 1
-            for k, v in diag.items():
-                diag_sum[k] = diag_sum.get(k, 0.0) + float(v)
-        diag_mean = {k: v / n for k, v in diag_sum.items()}
-        rec = dict(step=0, val_loss=tot / n, val_core_loss=train.core_loss(diag_mean, old_task.target_variables),
-                   val_per_variable=diag_mean)
+        eval_fn = train.make_eval(train.make_loss(m.model_config, task, stats, schemes, cfg.use_bf16))
+        r = train.score(eval_fn, params, {}, val, 1, cfg.n_val, cfg.batch_size, old_task.target_variables)
+        rec = dict(step=0, val_loss=r["loss"], val_core_loss=r["core"], val_per_variable=r["per_variable"])
         (out / "validation.jsonl").write_text(json.dumps(rec) + "\n")
-        print(f"R0 validation loss {rec['val_loss']:.4f}, core {rec['val_core_loss']:.4f} -> {out}")
+        (out / "validation_long.jsonl").unlink(missing_ok=True)
+        cfg.run = "R0"
+        print(f"R0 validation loss {rec['val_loss']:.4f}, core {rec['val_core_loss']:.4f}")
+        train.score_long(eval_fn, params, {}, val, cfg, old_task.target_variables, 0, out)
+        print("written:", out)
         return
 
     sampler = train.Sampler(phase5.month_files(cfg.train_years), task, cfg.train_years, statics_store=statics)
@@ -97,6 +92,13 @@ def main():
                                   license="derived from GraphCast_small, CC BY-NC-SA 4.0")
         with open(out / f"params_{run}.ckpt", "wb") as f:
             checkpoint.dump(f, ck)
+        s1 = out / "params_stage1.pkl"
+        if s1.exists():                                         # the end-of-stage-1 weights too
+            ck1 = graphcast.CheckPoint(params=train.load(s1)["params"], model_config=m.model_config,
+                                       task_config=task, license=ck.license,
+                                       description=f"GraphCast_small fine-tuned as {run}, stage 1 only")
+            with open(out / f"params_{run}_stage1.ckpt", "wb") as f:
+                checkpoint.dump(f, ck1)
         starts = val.inits(4)[::max(1, len(val.inits(4)) // 8)][:8]
         res = train.residual_check(params, m.model_config, task, stats, schemes, val, starts, 4, cfg.use_bf16)
         res.to_csv(out / "residuals.csv", index=False)

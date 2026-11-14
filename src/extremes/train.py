@@ -7,6 +7,9 @@ act on what the model produces itself. AdamW (b2 = 0.95 as in GraphCast), no wei
 decay, learning rates for fine-tuning rather than training from scratch. Every `eval_every` steps a fixed validation set (held-out year) is scored:
   loss       - full loss (incl. the new fluxes)
   core_loss  - only the variables R0 also predicts: comparable across R0-R4
+and, less often (every `eval_long_every` steps, at the end of stage 1 and at the end),
+1-day and 5-day forecasts (validation_long.jsonl). The weights at the end of stage 1 are
+kept (params_stage1.pkl), so stage 1 and stage 1 + 2 can both be evaluated in Phase 6.
 Checkpoints every `ckpt_every` steps; a job that is stopped resumes where it was.
 
 Data: training samples are read from the staged 1-degree store (scripts/50_stage_data.py),
@@ -56,6 +59,9 @@ class TrainConfig:
     weight_decay: float = 0.0
     eval_every: int = 250
     n_val: int = 32
+    long_horizons: tuple = (4, 20)       # also validate 1-day and 5-day forecasts (6-h steps)
+    n_val_long: int = 16
+    eval_long_every: int = 1000          # + at step 0, at the end of stage 1 and at the end
     ckpt_every: int = 250
     seed: int = 0
     use_bf16: bool = True
@@ -173,6 +179,39 @@ def optimizer(cfg: TrainConfig):
                                                  weight_decay=cfg.weight_decay)
 
 
+def score(eval_fn, params, state, sampler: Sampler, n_steps: int, n: int, batch_size: int, core_vars,
+          batches=None) -> dict | None:
+    """Validation loss of n forecasts of n_steps 6-h steps (start times spread evenly over
+    the year; the loss is averaged over the steps). `batches`: pre-loaded batches."""
+    if batches is None:
+        inits = sampler.inits(n_steps)
+        if len(inits) == 0:
+            return None
+        inits = inits[np.linspace(0, len(inits) - 1, min(n, len(inits))).astype(int)]
+        batches = (sampler.batch(inits[i:i + batch_size], n_steps) for i in range(0, len(inits), batch_size))
+    tot, diag_sum, k = 0.0, {}, 0
+    for b in batches:
+        loss, diag = eval_fn(params, state, *b)
+        tot += float(loss); k += 1
+        for name, v in diag.items():
+            diag_sum[name] = diag_sum.get(name, 0.0) + float(v)
+    diag_mean = {name: v / k for name, v in diag_sum.items()}
+    return dict(loss=tot / k, core=core_loss(diag_mean, core_vars),
+                per_variable={name: round(v, 6) for name, v in diag_mean.items()})
+
+
+def score_long(eval_fn, params, state, sampler: Sampler, cfg, core_vars, step: int, out: Path, log=print):
+    """1-day / 5-day validation -> validation_long.jsonl (one line per horizon)."""
+    for h in cfg.long_horizons:
+        r = score(eval_fn, params, state, sampler, h, cfg.n_val_long, cfg.batch_size, core_vars)
+        if r is None:
+            log(f"[{cfg.run}] no validation starts for {h} steps - skipped"); continue
+        with open(out / "validation_long.jsonl", "a") as f:
+            f.write(json.dumps(dict(step=step, horizon_h=6 * h, val_loss=r["loss"], val_core_loss=r["core"],
+                                    val_per_variable=r["per_variable"])) + "\n")
+        log(f"[{cfg.run}] step {step}: {6 * h} h forecasts - validation loss {r['loss']:.4f}, core {r['core']:.4f}")
+
+
 # ------------------------------------------------------------------ checkpoints
 def save(path: Path, obj) -> None:
     tmp = path.with_suffix(".part")
@@ -213,16 +252,8 @@ def train(cfg: TrainConfig, out: Path, sampler: Sampler, val_sampler: Sampler, m
                    for i in range(0, len(val_inits), cfg.batch_size)]
 
     def validate(step):
-        tot, diag_sum = 0.0, {}
-        for b in val_batches:
-            loss, diag = eval_fn(params, state, *b)
-            tot += float(loss)
-            for k, v in diag.items():
-                diag_sum[k] = diag_sum.get(k, 0.0) + float(v)
-        n = len(val_batches)
-        diag_mean = {k: v / n for k, v in diag_sum.items()}
-        rec = dict(step=step, val_loss=tot / n, val_core_loss=core_loss(diag_mean, core_vars),
-                   val_per_variable={k: round(v, 6) for k, v in diag_mean.items()})
+        r = score(eval_fn, params, state, val_sampler, 1, cfg.n_val, cfg.batch_size, core_vars, val_batches)
+        rec = dict(step=step, val_loss=r["loss"], val_core_loss=r["core"], val_per_variable=r["per_variable"])
         with open(out / "validation.jsonl", "a") as f:
             f.write(json.dumps(rec) + "\n")
         log(f"[{cfg.run}] step {step}: validation loss {rec['val_loss']:.4f}, core {rec['val_core_loss']:.4f}")
@@ -230,6 +261,7 @@ def train(cfg: TrainConfig, out: Path, sampler: Sampler, val_sampler: Sampler, m
 
     if start == 0:
         validate(0)
+        score_long(eval_fn, params, state, val_sampler, cfg, core_vars, 0, out, log)
     pool = cf.ThreadPoolExecutor(max_workers=PREFETCH)
     inits_cache = {}
 
@@ -272,6 +304,10 @@ def train(cfg: TrainConfig, out: Path, sampler: Sampler, val_sampler: Sampler, m
                 f"lr {rec['lr']:.1e} rollout {rec['rollout']} ({rec['s_per_step']:.2f} s/step)")
         if (step + 1) % cfg.eval_every == 0 or step + 1 == cfg.total_steps():
             validate(step + 1)
+        if ((step + 1) % cfg.eval_long_every == 0 or step + 1 in (cfg.stage1_steps, cfg.total_steps())):
+            score_long(eval_fn, params, state, val_sampler, cfg, core_vars, step + 1, out, log)
+        if step + 1 == cfg.stage1_steps:                       # keep the end-of-stage-1 weights
+            save(out / "params_stage1.pkl", dict(params=params, step=step + 1))
         if (step + 1) % cfg.ckpt_every == 0 or step + 1 == end:
             save(ck, dict(params=params, state=state, opt_state=opt_state, step=step + 1,
                           rng=rng.bit_generator.state))
