@@ -68,6 +68,16 @@ def _old_params(ds, stats):
     return params
 
 
+def test_schedule_stages_and_learning_rates():
+    cfg = train.TrainConfig()
+    assert cfg.stage_ends() == [1500, 2500, 4000, 5500] and cfg.total_steps() == 5500
+    assert cfg.head_only(0) and not cfg.head_only(1500)
+    assert [cfg.n_steps(s) for s in (0, 1499, 1500, 2500, 4000, 5499)] == [1, 1, 2, 4, 8, 8]
+    assert np.isclose(cfg.lr(99), 1e-3) and np.isclose(cfg.lr(1499), 1e-4, rtol=1e-2)
+    assert np.isclose(cfg.lr(1599), 3e-6) and np.isclose(cfg.lr(3000), 3e-6)
+    assert np.isclose(cfg.lr(5499), 1e-6, rtol=1e-2)
+
+
 def test_channel_layout_counts():
     lay = finetune.channel_layout(NEW_TASK)
     assert sum(n for _, n in lay.values()) == 83 + 7
@@ -125,22 +135,38 @@ def test_training_runs_lowers_nothing_to_nan_and_resumes(tmp_path):
 
     ds = _with_fluxes(synthetic.make_dataset(n_times=8))
     init = finetune.grow_params(_old_params(ds, stats), OLD_TASK, NEW_TASK)
-    cfg = train.TrainConfig(run="R4", batch_size=2, stage1_steps=3, stage2_steps=2, rollout=2,
-                            warmup=1, eval_every=5, n_val=2, ckpt_every=2, use_bf16=False,
-                            long_horizons=(2, 20), n_val_long=2, eval_long_every=100)
+    stages = (train.Stage(rollout=1, steps=3, lr=1e-3, lr_end=1e-4, warmup=1, head_only=True),
+              train.Stage(rollout=2, steps=2, lr=1e-5, lr_end=1e-5))
+    cfg = train.TrainConfig(run="R4", batch_size=2, stages=stages, eval_every=5, n_val=2, ckpt_every=2,
+                            use_bf16=False, long_horizons=(2, 20), n_val_long=2, eval_long_every=100)
     out = tmp_path / "run"
     train.train(cfg, out, sampler, sampler, MC, NEW_TASK, stats, init, OLD_TASK.target_variables,
-                log=lambda *a: None, max_steps=3)
+                log=lambda *a: None, max_steps=3, old_task=OLD_TASK)
     assert (out / "checkpoint.pkl").exists()
-    assert train.load(out / "params_stage1.pkl")["step"] == 3            # end of stage 1 kept
+    s1 = train.load(out / "params_stage1.pkl")
+    assert s1["step"] == 3                                              # end of stage 1 kept
+    # head-only stage: every weight unchanged except the new flux output channels
+    key, cols = finetune.new_channel_mask(init, OLD_TASK, NEW_TASK)
+    changed = []
+    for k, p in init.items():
+        for n, a in p.items():
+            b = np.asarray(s1["params"][k][n])
+            if k == key:
+                old_cols = cols == 0
+                np.testing.assert_array_equal(b[..., old_cols], np.asarray(a)[..., old_cols])
+                changed.append(not np.array_equal(b[..., ~old_cols], np.asarray(a)[..., ~old_cols]))
+            else:
+                np.testing.assert_array_equal(b, np.asarray(a), err_msg=f"{k}/{n} changed in head-only stage")
+    assert any(changed)                                                 # ... and those did learn
     params = train.train(cfg, out, sampler, sampler, MC, NEW_TASK, stats, init, OLD_TASK.target_variables,
-                         log=lambda *a: None)
+                         log=lambda *a: None, old_task=OLD_TASK)
     lines = pd.read_json(out / "train.jsonl", lines=True)
     val = pd.read_json(out / "validation.jsonl", lines=True)
     assert np.isfinite(lines.loss).all() and val.step.max() == 5
     assert train.load(out / "checkpoint.pkl")["step"] == 5
     long = pd.read_json(out / "validation_long.jsonl", lines=True)
-    assert sorted(long.step.unique()) == [0, 3, 5]                     # start, end of stage 1, end
+    assert sorted(long.step.unique()) == [0, 3, 5]                     # start, end of each stage
+    assert train.load(out / "params_stage2.pkl")["step"] == 5
     assert set(long.horizon_h) == {12}                                  # 20 steps: no room -> skipped
     assert np.isfinite(long.val_core_loss).all()
     res = train.residual_check(params, MC, NEW_TASK, stats, finetune.RUNS["R4"], sampler,

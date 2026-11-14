@@ -9,8 +9,8 @@ Starts from the GraphCast_small checkpoint with the decoder grown by the 7 flux 
 (finetune.grow_params). Needs the staged data (50_stage_data.py) and the flux stats.
 Writes results/phase5/runs/<run>/: config.json, train.jsonl, validation.jsonl,
 checkpoint.pkl (resume state), validation_long.jsonl (1-day and 5-day forecasts),
-params_stage1.pkl, and at the end params_<run>.ckpt and params_<run>_stage1.ckpt (the
-authors' checkpoint format, with the extended task) and residuals.csv (budget
+params_stage<k>.pkl, and at the end params_<run>.ckpt and params_<run>_stage<k>.ckpt for the
+earlier stage ends (the authors' checkpoint format, with the extended task) and residuals.csv (budget
 violations of 4-step forecasts from 8 validation starts).
 """
 import argparse
@@ -82,7 +82,7 @@ def main():
     print(f"{run}: schemes {schemes or 'none'}; {len(sampler.times):,} training times "
           f"({cfg.train_years}), validation year {cfg.val_year}; {cfg.total_steps()} steps", flush=True)
     params = train.train(cfg, out, sampler, val, m.model_config, task, stats, params,
-                         old_task.target_variables, max_steps=a.max_steps)
+                         old_task.target_variables, max_steps=a.max_steps, old_task=old_task)
 
     state = train.load(out / "checkpoint.pkl")
     if state["step"] >= cfg.total_steps():
@@ -92,13 +92,14 @@ def main():
                                   license="derived from GraphCast_small, CC BY-NC-SA 4.0")
         with open(out / f"params_{run}.ckpt", "wb") as f:
             checkpoint.dump(f, ck)
-        s1 = out / "params_stage1.pkl"
-        if s1.exists():                                         # the end-of-stage-1 weights too
-            ck1 = graphcast.CheckPoint(params=train.load(s1)["params"], model_config=m.model_config,
-                                       task_config=task, license=ck.license,
-                                       description=f"GraphCast_small fine-tuned as {run}, stage 1 only")
-            with open(out / f"params_{run}_stage1.ckpt", "wb") as f:
-                checkpoint.dump(f, ck1)
+        for k in range(1, len(cfg.stages)):                     # the weights at earlier stage ends too
+            sk = out / f"params_stage{k}.pkl"
+            if sk.exists():
+                ckk = graphcast.CheckPoint(params=train.load(sk)["params"], model_config=m.model_config,
+                                           task_config=task, license=ck.license,
+                                           description=f"GraphCast_small fine-tuned as {run}, after stage {k}")
+                with open(out / f"params_{run}_stage{k}.ckpt", "wb") as f:
+                    checkpoint.dump(f, ckk)
         starts = val.inits(4)[::max(1, len(val.inits(4)) // 8)][:8]
         res = train.residual_check(params, m.model_config, task, stats, schemes, val, starts, 4, cfg.use_bf16)
         res.to_csv(out / "residuals.csv", index=False)

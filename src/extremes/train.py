@@ -1,19 +1,22 @@
 """Phase 5 fine-tuning loop (one run = one of R1-R4, see finetune.RUNS).
 
-Two stages, as GraphCast's own training: (1) one-step forecasts with a warm-up then
-cosine-decaying learning rate; (2) a short multi-step stage (the model's own outputs
-are fed back for `rollout` steps) at a small constant learning rate, so the schemes
-act on what the model produces itself. AdamW (b2 = 0.95 as in GraphCast), no weight
-decay, learning rates for fine-tuning rather than training from scratch. Every `eval_every` steps a fixed validation set (held-out year) is scored:
+Schedule (round 3; rounds 1-2 drifted away from GraphCast's multi-day skill):
+  stage 1  "flux warm-up": ONLY the 7 new output channels learn (the rest of the model
+           is frozen), one-step forecasts, high learning rate. The model's skill cannot
+           degrade here; for R1 the scores must stay exactly at R0's.
+  stage 2+ the whole model, at a small learning rate, on multi-step forecasts (the
+           model's own output is fed back): 2, then 4, then 8 steps (up to 2 days) - the
+           way GraphCast itself was fine-tuned, which keeps it stable over many days.
+AdamW (b2 = 0.95 as in GraphCast), no weight decay. Every `eval_every` steps a fixed
+validation set (held-out year) is scored:
   loss       - full loss (incl. the new fluxes)
   core_loss  - only the variables R0 also predicts: comparable across R0-R4
-and, less often (every `eval_long_every` steps, at the end of stage 1 and at the end),
-1-day and 5-day forecasts (validation_long.jsonl). The weights at the end of stage 1 are
-kept (params_stage1.pkl), so stage 1 and stage 1 + 2 can both be evaluated in Phase 6.
-Checkpoints every `ckpt_every` steps; a job that is stopped resumes where it was.
+and, less often (every `eval_long_every` steps and at the end of every stage), 1-day and
+5-day forecasts (validation_long.jsonl). The weights at the end of every stage are kept
+(params_stage<k>.pkl). Checkpoints every `ckpt_every` steps; a stopped job resumes.
 
 Data: training samples are read from the staged 1-degree store (scripts/50_stage_data.py),
-B random start times per step, loaded in a background thread while the GPU trains.
+B random start times per step, loaded in background threads while the GPU trains.
 """
 from __future__ import annotations
 
@@ -42,43 +45,68 @@ PREFETCH = 2                         # batches loaded ahead while the GPU trains
 
 
 @dataclasses.dataclass
+class Stage:
+    rollout: int                  # forecast steps (6 h each) per training sample
+    steps: int
+    lr: float                     # peak learning rate (after warm-up) ...
+    lr_end: float                 # ... decaying (cosine) to this by the end of the stage
+    warmup: int = 0
+    head_only: bool = False       # train only the new flux output channels
+
+
+STAGES = (
+    Stage(rollout=1, steps=1500, lr=1e-3, lr_end=1e-4, warmup=100, head_only=True),
+    Stage(rollout=2, steps=1000, lr=3e-6, lr_end=3e-6, warmup=100),
+    Stage(rollout=4, steps=1500, lr=3e-6, lr_end=3e-6),
+    Stage(rollout=8, steps=1500, lr=3e-6, lr_end=1e-6),
+)
+
+
+@dataclasses.dataclass
 class TrainConfig:
     run: str = "R1"
     train_years: tuple = (2010, 2011, 2012, 2013, 2014)
     val_year: int = 2015
     batch_size: int = 4
-    stage1_steps: int = 6000
-    stage2_steps: int = 1000
-    rollout: int = 4                     # stage-2 forecast steps (6 h each)
-    # fine-tuning a trained model: small steps, no weight decay (decay would pull every
-    # pretrained weight toward zero, degrading R1-R4 alike vs R0 for no physical reason)
-    peak_lr: float = 3e-5
-    final_lr: float = 1e-6
-    warmup: int = 300
-    stage2_lr: float = 1e-6
-    weight_decay: float = 0.0
+    stages: tuple = STAGES
+    weight_decay: float = 0.0    # decay would pull every pretrained weight toward zero
     eval_every: int = 250
     n_val: int = 32
     long_horizons: tuple = (4, 20)       # also validate 1-day and 5-day forecasts (6-h steps)
     n_val_long: int = 16
-    eval_long_every: int = 1000          # + at step 0, at the end of stage 1 and at the end
+    eval_long_every: int = 1000          # + at step 0 and at the end of every stage
     ckpt_every: int = 250
     seed: int = 0
     use_bf16: bool = True
 
+    def stage_ends(self) -> list[int]:
+        """Global step at which each stage ends."""
+        return list(np.cumsum([st.steps for st in self.stages]))
+
     def total_steps(self) -> int:
-        return self.stage1_steps + self.stage2_steps
+        return int(self.stage_ends()[-1])
+
+    def stage(self, step: int) -> tuple[int, Stage, int]:
+        """(stage index, stage, step within the stage) of a global step."""
+        first = 0
+        for k, st in enumerate(self.stages):
+            if step < first + st.steps:
+                return k, st, step - first
+            first += st.steps
+        return len(self.stages) - 1, self.stages[-1], self.stages[-1].steps - 1
 
     def lr(self, step: int) -> float:
-        if step >= self.stage1_steps:
-            return self.stage2_lr
-        if step < self.warmup:
-            return self.peak_lr * (step + 1) / self.warmup
-        x = (step - self.warmup) / max(1, self.stage1_steps - self.warmup)
-        return self.final_lr + 0.5 * (self.peak_lr - self.final_lr) * (1 + math.cos(math.pi * x))
+        _, st, i = self.stage(step)
+        if i < st.warmup:
+            return st.lr * (i + 1) / st.warmup
+        x = (i - st.warmup) / max(1, st.steps - st.warmup)
+        return st.lr_end + 0.5 * (st.lr - st.lr_end) * (1 + math.cos(math.pi * x))
 
     def n_steps(self, step: int) -> int:
-        return 1 if step < self.stage1_steps else self.rollout
+        return self.stage(step)[1].rollout
+
+    def head_only(self, step: int) -> bool:
+        return self.stage(step)[1].head_only
 
 
 # ------------------------------------------------------------------ data
@@ -159,12 +187,20 @@ def core_loss(diag: dict, core_vars) -> float:
     return float(sum(finetune.LOSS_WEIGHTS.get(v, 1.0) * float(diag[v]) for v in core_vars if v in diag))
 
 
-def make_step(loss_fn, optimizer):
+def make_step(loss_fn, optimizer, grad_mask=None):
+    """One training step. grad_mask = (layer key, 0/1 vector over its output channels):
+    only those output channels get gradients, every other weight gets zero - with zero
+    weight decay (and Adam's moments still zero) those weights do not change at all."""
     def step(params, state, opt_state, inp, tgt, frc):
         def f(p):
             (loss, diag), new_state = loss_fn.apply(p, state, None, inp, tgt, frc)
             return loss, (diag, new_state)
         (loss, (diag, new_state)), grads = jax.value_and_grad(f, has_aux=True)(params)
+        if grad_mask is not None:
+            key, cols = grad_mask
+            grads = {k: ({"w": p["w"] * cols, "b": p["b"] * cols} if k == key
+                         else jax.tree_util.tree_map(jax.numpy.zeros_like, p))
+                     for k, p in grads.items()}
         updates, opt_state = optimizer.update(grads, opt_state, params)
         return optax.apply_updates(params, updates), new_state, opt_state, loss, diag, optax.global_norm(grads)
     return jax.jit(step)
@@ -227,14 +263,21 @@ def load(path: Path):
 
 # ------------------------------------------------------------------ loop
 def train(cfg: TrainConfig, out: Path, sampler: Sampler, val_sampler: Sampler, model_config, task_config,
-          stats: dict, init_params: dict, core_vars, log=print, max_steps: int | None = None):
-    """Run (or resume) one fine-tuning run; returns the final params."""
+          stats: dict, init_params: dict, core_vars, log=print, max_steps: int | None = None,
+          old_task=None):
+    """Run (or resume) one fine-tuning run; returns the final params.
+    old_task: the task before the flux outputs were added (for the head-only stage)."""
     out.mkdir(parents=True, exist_ok=True)
     (out / "config.json").write_text(json.dumps(dataclasses.asdict(cfg), indent=1))
     schemes = finetune.RUNS[cfg.run]
     loss_fn = make_loss(model_config, task_config, stats, schemes, cfg.use_bf16)
     opt = optimizer(cfg)
     step_fn, eval_fn = make_step(loss_fn, opt), make_eval(loss_fn)
+    head_fn = None
+    if any(st.head_only for st in cfg.stages):
+        if old_task is None:
+            raise ValueError("a head-only stage needs old_task (to know which channels are new)")
+        head_fn = make_step(loss_fn, opt, finetune.new_channel_mask(init_params, old_task, task_config))
 
     ck = out / "checkpoint.pkl"
     if ck.exists():
@@ -292,22 +335,28 @@ def train(cfg: TrainConfig, out: Path, sampler: Sampler, val_sampler: Sampler, m
         if step + PREFETCH < end:
             ahead[step + PREFETCH] = draw(step + PREFETCH)
         opt_state.hyperparams["learning_rate"] = jax.numpy.asarray(cfg.lr(step), jax.numpy.float32)
-        params, state, opt_state, loss, diag, gnorm = step_fn(params, state, opt_state, inp, tgt, frc)
+        fn = head_fn if cfg.head_only(step) else step_fn
+        params, state, opt_state, loss, diag, gnorm = fn(params, state, opt_state, inp, tgt, frc)
         if (step + 1) % 25 == 0 or step == start:
-            rec = dict(step=step + 1, loss=float(loss), grad_norm=float(gnorm), lr=cfg.lr(step),
-                       rollout=cfg.n_steps(step), s_per_step=(time.perf_counter() - t0) / (step + 1 - start))
+            rec = dict(step=step + 1, stage=cfg.stage(step)[0] + 1, loss=float(loss), grad_norm=float(gnorm),
+                       lr=cfg.lr(step), rollout=cfg.n_steps(step),
+                       s_per_step=(time.perf_counter() - t0) / (step + 1 - start))
             if not np.isfinite(rec["loss"]):
                 raise FloatingPointError(f"loss is {rec['loss']} at step {step + 1} - stopping")
             with open(out / "train.jsonl", "a") as f:
                 f.write(json.dumps(rec) + "\n")
-            log(f"[{cfg.run}] step {step + 1}/{cfg.total_steps()} loss {rec['loss']:.4f} "
+            log(f"[{cfg.run}] stage {rec['stage']} step {step + 1}/{cfg.total_steps()} loss {rec['loss']:.4f} "
                 f"lr {rec['lr']:.1e} rollout {rec['rollout']} ({rec['s_per_step']:.2f} s/step)")
         if (step + 1) % cfg.eval_every == 0 or step + 1 == cfg.total_steps():
             validate(step + 1)
-        if ((step + 1) % cfg.eval_long_every == 0 or step + 1 in (cfg.stage1_steps, cfg.total_steps())):
+        ends = cfg.stage_ends()
+        if (step + 1) % cfg.eval_long_every == 0 or step + 1 in ends:
             score_long(eval_fn, params, state, val_sampler, cfg, core_vars, step + 1, out, log)
-        if step + 1 == cfg.stage1_steps:                       # keep the end-of-stage-1 weights
-            save(out / "params_stage1.pkl", dict(params=params, step=step + 1))
+        if step + 1 in ends:                                   # keep the weights at every stage end
+            k = ends.index(step + 1) + 1
+            save(out / f"params_stage{k}.pkl", dict(params=params, step=step + 1))
+            if (step + 1) % cfg.eval_every and step + 1 != cfg.total_steps():
+                validate(step + 1)                             # 6-h score at every stage end too
         if (step + 1) % cfg.ckpt_every == 0 or step + 1 == end:
             save(ck, dict(params=params, state=state, opt_state=opt_state, step=step + 1,
                           rng=rng.bit_generator.state))

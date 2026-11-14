@@ -83,6 +83,19 @@ def grow_params(params: dict, old_task, new_task) -> dict:
     return out
 
 
+def new_channel_mask(params: dict, old_task, new_task) -> tuple[str, np.ndarray]:
+    """(decoder output layer key, 0/1 vector over its output channels): 1 only for the
+    channels that are new in new_task (the flux outputs). Used to train only those."""
+    old, new = channel_layout(old_task), channel_layout(new_task)
+    n_new = sum(n for _, n in new.values())
+    key = _decoder_output_key(params, n_new)
+    cols = np.zeros(n_new, np.float32)
+    for v, (s, n) in new.items():
+        if v not in old:
+            cols[s:s + n] = 1.0
+    return key, cols
+
+
 def extend_stats(stats: dict, flux_mean: xarray.Dataset, flux_std: xarray.Dataset) -> dict:
     """Add the flux variables' mean and standard deviation to the normalisation stats
     (target-only variables are normalised directly, so no difference stats are needed)."""
