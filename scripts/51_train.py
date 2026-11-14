@@ -63,7 +63,8 @@ def main():
     out = Path(a.out) if a.out else phase5.run_dir(run)
     out.mkdir(parents=True, exist_ok=True)
 
-    val = train.Sampler(phase5.open_staged([cfg.val_year]), task, [cfg.val_year])
+    statics = phase5.STAGED / "statics.zarr"
+    val = train.Sampler(phase5.month_files([cfg.val_year]), task, [cfg.val_year], statics_store=statics)
     if a.baseline:
         loss_fn = train.make_loss(m.model_config, task, stats, schemes, cfg.use_bf16)
         eval_fn = train.make_eval(loss_fn)
@@ -82,7 +83,7 @@ def main():
         print(f"R0 validation loss {rec['val_loss']:.4f}, core {rec['val_core_loss']:.4f} -> {out}")
         return
 
-    sampler = train.Sampler(phase5.open_staged(cfg.train_years), task, cfg.train_years)
+    sampler = train.Sampler(phase5.month_files(cfg.train_years), task, cfg.train_years, statics_store=statics)
     print(f"{run}: schemes {schemes or 'none'}; {len(sampler.times):,} training times "
           f"({cfg.train_years}), validation year {cfg.val_year}; {cfg.total_steps()} steps", flush=True)
     params = train.train(cfg, out, sampler, val, m.model_config, task, stats, params,

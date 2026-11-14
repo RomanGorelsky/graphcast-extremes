@@ -35,6 +35,7 @@ from weathernext.utils import data_utils
 from . import finetune, inputs, physics
 
 STEP = pd.Timedelta(hours=6)
+PREFETCH = 2                         # batches loaded ahead while the GPU trains
 
 
 @dataclasses.dataclass
@@ -76,19 +77,32 @@ class TrainConfig:
 
 # ------------------------------------------------------------------ data
 class Sampler:
-    """Random training batches from the staged 1-degree store."""
+    """Random training batches from the staged 1-degree data.
 
-    def __init__(self, store, task, years, io_threads: int = 16):
-        """store: a path to one zarr store, or an opened dataset (phase5.open_staged)."""
-        self.ds = store if isinstance(store, xarray.Dataset) else xarray.open_zarr(store, chunks={})
-        self.task = task
-        t = pd.DatetimeIndex(self.ds.time.values)
+    Fast path (Phase 5 benchmark: ~10 s per batch before): the month files are opened
+    WITHOUT dask; for each sample the few time steps it needs (2 inputs + targets) are
+    read in one go from the right month file(s) into memory, and the samples of a batch
+    are read in parallel threads."""
+
+    def __init__(self, store, task, years, io_threads: int = 16, statics_store=None):
+        """store: one zarr store (path), or a list of month stores (phase5.month_files);
+        statics_store: where terrain height and land-sea mask are, if not in `store`."""
+        paths = [store] if isinstance(store, (str, Path)) else list(store)
+        self.sources = [xarray.open_zarr(p, chunks=None) for p in paths]
+        self.where = {}
+        for i, src in enumerate(self.sources):
+            for t in pd.DatetimeIndex(src.time.values):
+                self.where[t] = i
+        t = pd.DatetimeIndex(sorted(self.where))
         self.times = t[t.year.isin(list(years))]
         self._have = set(self.times)
-        self.statics = {v: self.ds[v].astype(np.float32).load() for v in inputs.STATIC}
+        st = self.sources[0] if statics_store is None else xarray.open_zarr(statics_store, chunks=None)
+        self.statics = {v: st[v].astype(np.float32).load() for v in inputs.STATIC}
+        self.task = task
         self.io_threads = io_threads
         self.extra = tuple(v for v in task.target_variables
                            if v not in inputs.SURFACE and v not in inputs.ATMOS)
+        self.vars = list(inputs.SURFACE) + list(inputs.ATMOS) + list(self.extra)
 
     def inits(self, n_steps: int) -> pd.DatetimeIndex:
         """Start times whose 2 inputs and n_steps targets are all in the store."""
@@ -96,15 +110,28 @@ class Sampler:
               if (t - STEP) in self._have and all((t + STEP * k) in self._have for k in range(1, n_steps + 1))]
         return pd.DatetimeIndex(ok)
 
-    def batch(self, inits, n_steps: int):
+    def _window(self, init, n_steps: int) -> xarray.Dataset:
+        """All variables at the 2 + n_steps times of one sample, in memory."""
+        times = [init + STEP * k for k in range(-1, n_steps + 1)]
+        parts = []
+        for i in sorted({self.where[t] for t in times}):
+            ts = [t for t in times if self.where[t] == i]
+            parts.append(self.sources[i][self.vars].sel(time=ts).load())
+        return xarray.concat(parts, "time") if len(parts) > 1 else parts[0]
+
+    def _sample(self, init, n_steps: int):
         # one sample at a time: the library computes solar radiation only for batch size 1
-        split = [data_utils.extract_inputs_targets_forcings(
-            inputs.build_batch(self.ds, t, n_steps, method="native", statics=self.statics,
-                               io_threads=self.io_threads, truth=True, extra=self.extra),
+        return data_utils.extract_inputs_targets_forcings(
+            inputs.build_batch(self._window(init, n_steps), init, n_steps, method="native",
+                               statics=self.statics, io_threads=1, truth=True, extra=self.extra),
             target_lead_times=slice("6h", f"{n_steps * 6}h"), **dataclasses.asdict(self.task))
-            for t in inits]
-        if len(split) == 1:
-            return split[0]
+
+    def batch(self, inits, n_steps: int):
+        inits = list(inits)
+        if len(inits) == 1:
+            return self._sample(inits[0], n_steps)
+        with cf.ThreadPoolExecutor(max_workers=len(inits)) as ex:
+            split = list(ex.map(lambda t: self._sample(t, n_steps), inits))
         # static fields (no batch dimension) are identical in every sample: keep them once
         return tuple(xarray.concat([s[i] for s in split], "batch", data_vars="minimal", coords="minimal",
                                    compat="override") for i in range(3))
@@ -203,17 +230,19 @@ def train(cfg: TrainConfig, out: Path, sampler: Sampler, val_sampler: Sampler, m
 
     if start == 0:
         validate(0)
-    pool = cf.ThreadPoolExecutor(max_workers=1)
+    pool = cf.ThreadPoolExecutor(max_workers=PREFETCH)
     inits_cache = {}
 
-    def load_clean(pick, n):
-        """Load a batch; if any value is missing (NaN), draw other start times."""
+    def load_clean(pick, n, seed):
+        """Load a batch; if any value is missing (NaN), draw other start times
+        (with the batch's own random generator: this runs in a loader thread)."""
+        own = np.random.default_rng(seed)
         for _ in range(10):
             b = sampler.batch(pick, n)
             if all(np.isfinite(np.asarray(v.values)).all() for part in b for v in part.data_vars.values()):
                 return b
             log(f"[{cfg.run}] missing values in a sample starting {list(pick)} - drawing others")
-            pick = inits_cache[n][rng.choice(len(inits_cache[n]), cfg.batch_size, replace=False)]
+            pick = inits_cache[n][own.choice(len(inits_cache[n]), cfg.batch_size, replace=False)]
         raise ValueError("ten batches in a row with missing values - check the staged data")
 
     def draw(step):
@@ -221,14 +250,15 @@ def train(cfg: TrainConfig, out: Path, sampler: Sampler, val_sampler: Sampler, m
         if n not in inits_cache:
             inits_cache[n] = sampler.inits(n)
         pick = inits_cache[n][rng.choice(len(inits_cache[n]), cfg.batch_size, replace=False)]
-        return pool.submit(load_clean, pick, n)
+        return pool.submit(load_clean, pick, n, int(rng.integers(2 ** 31)))
 
     end = cfg.total_steps() if max_steps is None else min(cfg.total_steps(), start + max_steps)
-    nxt = draw(start) if start < end else None
+    ahead = {k: draw(k) for k in range(start, min(start + PREFETCH, end))}   # batches being loaded
     t0 = time.perf_counter()
     for step in range(start, end):
-        inp, tgt, frc = nxt.result()
-        nxt = draw(step + 1) if step + 1 < end else None
+        inp, tgt, frc = ahead.pop(step).result()
+        if step + PREFETCH < end:
+            ahead[step + PREFETCH] = draw(step + PREFETCH)
         opt_state.hyperparams["learning_rate"] = jax.numpy.asarray(cfg.lr(step), jax.numpy.float32)
         params, state, opt_state, loss, diag, gnorm = step_fn(params, state, opt_state, inp, tgt, frc)
         if (step + 1) % 25 == 0 or step == start:

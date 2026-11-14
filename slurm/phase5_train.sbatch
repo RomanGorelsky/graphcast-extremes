@@ -1,5 +1,5 @@
 #!/bin/bash
-# Phase 5, step 3: the four fine-tuning runs, one GPU each (one at a time), all with identical data,
+# Phase 5, step 3: the four fine-tuning runs, one GPU each (at most 2 at a time), all with identical data,
 # steps and learning rate:  R1 control | R2 + dry-air mass | R3 + moisture | R4 + energy
 # Each run saves a checkpoint every 250 steps. Cluster limit: 12 h per job - a run that
 # needs longer stops at 12 h; submit again and it continues from its last checkpoint.
@@ -9,7 +9,7 @@
 #
 # Run lengths: set from the benchmark, e.g. add  --stage1-steps 4000  to the python line.
 #SBATCH --job-name=p5train
-#SBATCH --array=1-4%1
+#SBATCH --array=1-4%2
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1

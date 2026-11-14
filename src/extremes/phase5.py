@@ -54,6 +54,14 @@ def run_dir(run: str) -> Path:
     return OUT / "runs" / run
 
 
+def month_files(years) -> list[Path]:
+    """The staged month stores of the given years, in time order (train.Sampler)."""
+    files = sorted(p for p in STAGED.glob("????-??.zarr") if int(p.name[:4]) in set(years))
+    if not files:
+        raise FileNotFoundError(f"no staged months for {years} in {STAGED}; run scripts/50_stage_data.py")
+    return files
+
+
 def open_staged(years=None) -> xarray.Dataset:
     """All staged months (optionally only some years) as one lazy dataset + statics."""
     files = sorted(p for p in STAGED.glob("????-??.zarr")
