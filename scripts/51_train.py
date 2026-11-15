@@ -39,13 +39,23 @@ def main():
     ap.add_argument("--baseline", action="store_true", help="only score R0 on the validation set")
     ap.add_argument("--out", default=None)
     ap.add_argument("--max-steps", type=int, default=None, help="stop after this many steps (benchmark)")
+    ap.add_argument("--one-stage", action="store_true",
+                    help="train only up to the end of the current stage, then exit (the cluster job "
+                         "starts a fresh process for every stage: GPU memory left over from one stage "
+                         "made the next one fail)")
     for f in dataclasses.fields(train.TrainConfig):
         if f.name not in ("run",) and f.type in ("int", "float"):
             ap.add_argument("--" + f.name.replace("_", "-"), type=eval(f.type), default=None)
     ap.add_argument("--train-years", type=int, nargs="+", default=None)
+    ap.add_argument("--init-params", default=None,
+                    help="start from these weights (a params_stage<k>.pkl) instead of GraphCast_small")
+    ap.add_argument("--skip-stages", type=int, default=0, help="drop the first N stages of the schedule")
+    ap.add_argument("--only-stages", type=int, default=None, help="keep only N stages (after skipping)")
     a = ap.parse_args()
 
     cfg = train.TrainConfig(run=a.run)
+    stages = cfg.stages[a.skip_stages:]
+    cfg.stages = stages[:a.only_stages] if a.only_stages else stages
     for f in dataclasses.fields(cfg):
         v = getattr(a, f.name, None)
         if v is not None and f.name != "run":
@@ -61,6 +71,9 @@ def main():
     else:
         task = finetune.extended_task(old_task)
         params, schemes, run = finetune.grow_params(m.params, old_task, task), finetune.RUNS[a.run], a.run
+        if a.init_params:
+            params = train.load(Path(a.init_params))["params"]
+            print(f"{run}: starting from {a.init_params}", flush=True)
     out = Path(a.out) if a.out else phase5.run_dir(run)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -77,6 +90,15 @@ def main():
         train.score_long(eval_fn, params, {}, val, cfg, old_task.target_variables, 0, out)
         print("written:", out)
         return
+
+    if a.one_stage:
+        ck_file = out / "checkpoint.pkl"
+        done = train.load(ck_file)["step"] if ck_file.exists() else 0
+        nxt = next((e for e in cfg.stage_ends() if e > done), None)
+        if nxt is not None:
+            a.max_steps = int(nxt - done)
+            print(f"{run}: step {done} -> {nxt} (stage {cfg.stage_ends().index(nxt) + 1} of {len(cfg.stages)})",
+                  flush=True)
 
     sampler = train.Sampler(phase5.month_files(cfg.train_years), task, cfg.train_years, statics_store=statics)
     print(f"{run}: schemes {schemes or 'none'}; {len(sampler.times):,} training times "

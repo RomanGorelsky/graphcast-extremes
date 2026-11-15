@@ -141,13 +141,18 @@ class PhysicsPredictor(predictor_base.Predictor):
         return self.loss_and_predictions(inputs, targets, forcings, **kwargs)[0]
 
 
+def loss_weights(flux_weight: float = FLUX_LOSS_WEIGHT) -> dict:
+    """LOSS_WEIGHTS with the 7 flux variables at `flux_weight` (0 = fluxes do not count)."""
+    return {**LOSS_WEIGHTS, **{v: flux_weight for v in physics.FLUX_VARS}}
+
+
 def construct(model_config, task_config, stats: dict, schemes: tuple = (), use_bf16: bool = True,
-              gradient_checkpointing: bool = True):
+              gradient_checkpointing: bool = True, weights: dict | None = None):
     """The full model stack; call inside a haiku transform."""
     p = graphcast.GraphCast(model_config, task_config)
     p = casting.Bfloat16Cast(p, enabled=use_bf16)
     p = normalization.InputsAndResiduals(p, diffs_stddev_by_level=stats["diffs_stddev_by_level"],
                                          mean_by_level=stats["mean_by_level"],
                                          stddev_by_level=stats["stddev_by_level"])
-    p = PhysicsPredictor(p, stats, schemes)
+    p = PhysicsPredictor(p, stats, schemes, weights)
     return autoregressive.Predictor(p, gradient_checkpointing=gradient_checkpointing)

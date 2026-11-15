@@ -70,6 +70,7 @@ class TrainConfig:
     batch_size: int = 4
     stages: tuple = STAGES
     weight_decay: float = 0.0    # decay would pull every pretrained weight toward zero
+    flux_weight: float = 0.1     # loss weight of each flux variable (0 = fluxes do not count)
     eval_every: int = 250
     n_val: int = 32
     long_horizons: tuple = (4, 20)       # also validate 1-day and 5-day forecasts (6-h steps)
@@ -172,10 +173,10 @@ class Sampler:
 
 
 # ------------------------------------------------------------------ model functions
-def make_loss(model_config, task_config, stats, schemes, use_bf16=True):
+def make_loss(model_config, task_config, stats, schemes, use_bf16=True, weights=None):
     @hk.transform_with_state
     def loss_fn(inp, tgt, frc):
-        p = finetune.construct(model_config, task_config, stats, schemes, use_bf16)
+        p = finetune.construct(model_config, task_config, stats, schemes, use_bf16, weights=weights)
         loss, diag = p.loss(inp, tgt, frc)
         unwrap = lambda x: xarray_jax.unwrap_data(x.mean(), require_jax=True)   # noqa: E731
         return unwrap(loss), {k: unwrap(v) for k, v in diag.items()}
@@ -270,7 +271,8 @@ def train(cfg: TrainConfig, out: Path, sampler: Sampler, val_sampler: Sampler, m
     out.mkdir(parents=True, exist_ok=True)
     (out / "config.json").write_text(json.dumps(dataclasses.asdict(cfg), indent=1))
     schemes = finetune.RUNS[cfg.run]
-    loss_fn = make_loss(model_config, task_config, stats, schemes, cfg.use_bf16)
+    loss_fn = make_loss(model_config, task_config, stats, schemes, cfg.use_bf16,
+                        weights=finetune.loss_weights(cfg.flux_weight))
     opt = optimizer(cfg)
     step_fn, eval_fn = make_step(loss_fn, opt), make_eval(loss_fn)
     head_fn = None
