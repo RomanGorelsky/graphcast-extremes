@@ -136,6 +136,21 @@ sbatch slurm/phase5_train.sbatch        # R1-R4 on 4 GPUs; resubmit to resume
 | `50_stage_data.py` | 1-degree training data, month by month (resumable) | `data/phase5/era5_1deg/` |
 | `51_train.py` | one run (`--run R1..R4`), or `--baseline` for R0 | `results/phase5/runs/<run>/` (train/validation logs, checkpoint, `residuals.csv`) |
 
+## Phase 6 — evaluation of R1-R4 on the 2020 events (cluster + Mac)
+
+1. Cluster (1 GPU per run, 2 at a time, ~1-2 h per run):
+   `sbatch slurm/phase6_forecasts.sbatch` -> the 14 case studies x 4 starts and the 12
+   ordinary dates with each fine-tuned run (`31_run_case_forecasts.py --model R<k>`,
+   `32_run_noharm.py --model R<k>`), into `results/phase6/`.
+2. Mac: copy `results/phase6/` over (`aws s3 sync ...`), then
+
+```bash
+for r in R1 R2 R3 R4; do python scripts/33_verify.py --label $r --forecasts results/phase6/forecasts_$r --no-maps; done
+python scripts/44_compare.py --labels R0 R1 R2 R3 R4 --tag _physics       # extremes: R0 vs R1-R4
+python scripts/45_robustness.py --labels R1 R2 R3 R4 --base R1 --tag _physics   # physics effect vs control
+python scripts/61_phase6_summary.py                                       # ordinary weather + sharpness
+```
+
 ## Cluster (MBZUAI Shared-Cluster-v3, H100)
 
 Connect with `ssh shared-cluster-v3` (see the cluster user guide). Heavy work runs only as

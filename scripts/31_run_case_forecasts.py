@@ -10,6 +10,8 @@ Resumable: existing files are skipped.
 
     python scripts/31_run_case_forecasts.py
     python scripts/31_run_case_forecasts.py --only heat-004 wind-004     # a subset
+    python scripts/31_run_case_forecasts.py --model R4                   # Phase 6: a fine-tuned run
+                                     # -> results/phase6/forecasts_R4/ (its schemes act at every step)
 """
 import argparse
 import gc
@@ -18,24 +20,37 @@ import time
 import pandas as pd
 import xarray
 
-from extremes import era5, inputs, model, phase3
+from extremes import era5, finetune, inputs, model, paths, phase3
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", nargs="*", default=None, help="event_ids to run (default: all)")
     ap.add_argument("--io-threads", type=int, default=32)
+    ap.add_argument("--model", default="R0", help="R0 (GraphCast_small) or a fine-tuned run R1-R4")
+    ap.add_argument("--stage", type=int, default=None, help="fine-tuned run: weights after this stage")
     a = ap.parse_args()
     cases = phase3.case_studies()
     if a.only:
         cases = cases[cases.event_id.isin(a.only)]
-    phase3.FORECASTS.mkdir(parents=True, exist_ok=True)
+    if a.model == "R0":
+        folder, m, label = phase3.FORECASTS, model.load_model(), "GraphCast_small (R0)"
+    else:
+        tag = a.model if a.stage is None else f"{a.model}s{a.stage}"
+        folder = paths.RESULTS_DIR / "phase6" / f"forecasts_{tag}"
+        m = finetune.load_run(a.model, a.stage)
+        label = f"GraphCast_small fine-tuned ({tag}, schemes: {finetune.RUNS[a.model] or 'none'})"
+    folder.mkdir(parents=True, exist_ok=True)
 
+    def path_of(event_id, d):
+        return folder / phase3.forecast_path(event_id, d).name
+
+    # target-only outputs R0 does not have (the fluxes): placeholders in the inputs
+    extra = tuple(v for v in m.task_config.target_variables if v not in inputs.SURFACE and v not in inputs.ATMOS)
     ds = era5.open_store(era5.WB2_ERA5)
     statics = inputs.load_statics(ds)
-    m = model.load_model()
     todo = [(c, d) for c in cases.itertuples() for d in phase3.LEADS_DAYS
-            if not phase3.forecast_path(c.event_id, d).exists()]
+            if not path_of(c.event_id, d).exists()]
     print(f"{len(cases)} events, {len(todo)} forecasts to run "
           f"({len(cases) * len(phase3.LEADS_DAYS) - len(todo)} done earlier)", flush=True)
 
@@ -43,7 +58,8 @@ def main():
     for n, (c, d) in enumerate(todo, 1):
         t0 = time.perf_counter()
         init = pd.Timestamp(getattr(c, f"init_minus_{d}d"))
-        batch = inputs.build_batch(ds, init, phase3.N_STEPS, statics=statics, io_threads=a.io_threads)
+        batch = inputs.build_batch(ds, init, phase3.N_STEPS, statics=statics, io_threads=a.io_threads,
+                                   extra=extra)
         i, tg, f = m.extract(batch, phase3.N_STEPS)
         del batch
         gc.collect()
@@ -57,8 +73,8 @@ def main():
             out[f"truth_{var}"] = phase3.crop(truth, *phase3.box_of(c)).astype("float32")
         out = out.drop_vars([v for v in out.coords if v not in ("time", "lat", "lon")])
         out.attrs.update(event_id=c.event_id, kind=c.kind, init=str(init), lead_days_before_peak=d,
-                         peak_time=str(c.peak_time), model="GraphCast_small (R0)")
-        p = phase3.forecast_path(c.event_id, d)
+                         peak_time=str(c.peak_time), model=label)
+        p = path_of(c.event_id, d)
         out.to_netcdf(p.with_suffix(".part.nc"))
         p.with_suffix(".part.nc").rename(p)
         del i, tg, f, pred, out
@@ -66,7 +82,7 @@ def main():
         print(f"[{n}/{len(todo)}] {c.event_id} start -{d} d ({str(init)[:13]}): "
               f"{time.perf_counter() - t0:.0f} s  (total {(time.perf_counter() - t_start) / 60:.1f} min)",
               flush=True)
-    print("done:", phase3.FORECASTS)
+    print("done:", folder)
 
 
 if __name__ == "__main__":

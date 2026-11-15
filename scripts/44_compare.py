@@ -21,6 +21,7 @@ from extremes import phase3, phase4, records, verify
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--labels", nargs="+", default=["R0", "Debias", "Persistence", "PBC"])
+    ap.add_argument("--tag", default="", help="suffix for the output files (Phase 6: _physics)")
     a = ap.parse_args()
     rows, errs = [], {}
     for lab in a.labels:
@@ -32,7 +33,7 @@ def main():
             for grp, v in s["by_kind_shattering"][kind].items():
                 rows.append(dict(label=lab, kind=kind, start_days="all", group=grp, **v))
     t = pd.DataFrame(rows)
-    t.to_csv(phase4.OUT / "comparison.csv", index=False)
+    t.to_csv(phase4.OUT / f"comparison{a.tag}.csv", index=False)
 
     for metric, unit in (("mean_intensity_error", "(negative = too mild)"), ("hit_rate", "")):
         print(f"\n{metric} {unit}")
@@ -50,7 +51,7 @@ def main():
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.3))
     for ax, kind in zip(axes, records.KINDS):
-        for lab, style in zip(a.labels, ["-o", "--s", ":^", "-D"]):
+        for lab, style in zip(a.labels, ["-o", "--s", ":^", "-D", "--v", ":x", "-P"]):
             e = errs[lab]
             b = verify.by_exceedance(e[e.kind == kind], ["start_days"])
             b = b[b["count"] >= 10].groupby("exc_bin", observed=True)["mean"].mean()
@@ -59,8 +60,8 @@ def main():
         ax.axhline(0, color="k", lw=0.8); ax.set_title(f"{kind} (mean over starts)")
         ax.set_xlabel(f"observed exceedance ({records.UNITS[kind]})")
         ax.set_ylabel(f"intensity error ({records.UNITS[kind]})"); ax.legend(fontsize=8)
-    fig.tight_layout(); fig.savefig(phase4.OUT / "comparison_bias_vs_exceedance.png", dpi=120)
-    print("\nwritten:", phase4.OUT / "comparison.csv", "and comparison_bias_vs_exceedance.png")
+    fig.tight_layout(); fig.savefig(phase4.OUT / f"comparison{a.tag}_bias_vs_exceedance.png", dpi=120)
+    print("\nwritten:", phase4.OUT / f"comparison{a.tag}.csv", f"and comparison{a.tag}_bias_vs_exceedance.png")
 
 
 if __name__ == "__main__":

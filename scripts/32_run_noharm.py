@@ -7,6 +7,7 @@ Rows are appended to results/phase3/noharm.csv with a --label, so every later mo
 (PBC, R1-R4) is scored on exactly the same dates. Resumable.
 
     python scripts/32_run_noharm.py --label R0
+    python scripts/32_run_noharm.py --model R4 --label R4   # Phase 6 -> results/phase6/noharm_R4.csv
 """
 import argparse
 import gc
@@ -14,7 +15,7 @@ import time
 
 import pandas as pd
 
-from extremes import era5, inputs, metrics, model, phase3
+from extremes import era5, finetune, inputs, metrics, model, paths, phase3
 
 LEADS = (1, 3, 5, 10)
 SURF = ["2m_temperature", "mean_sea_level_pressure", "10m_u_component_of_wind", "10m_v_component_of_wind"]
@@ -25,21 +26,28 @@ def main():
     ap.add_argument("--label", default="R0")
     ap.add_argument("--year", type=int, default=2020)
     ap.add_argument("--io-threads", type=int, default=32)
+    ap.add_argument("--model", default="R0", help="R0 (GraphCast_small) or a fine-tuned run R1-R4")
     a = ap.parse_args()
     phase3.OUT.mkdir(parents=True, exist_ok=True)
-    f = phase3.OUT / "noharm.csv"
+    if a.model == "R0":
+        f = phase3.OUT / "noharm.csv"
+    else:                                   # own file: runs on 2 GPUs at once never write together
+        f = paths.RESULTS_DIR / "phase6" / f"noharm_{a.label}.csv"
+        f.parent.mkdir(parents=True, exist_ok=True)
     done = pd.read_csv(f, parse_dates=["init"]) if f.exists() else pd.DataFrame(columns=["label", "init"])
     done = set(zip(done.label, pd.to_datetime(done.init)))
 
     ds = era5.open_store(era5.WB2_ERA5)
     statics = inputs.load_statics(ds)
-    m = model.load_model()
+    m = model.load_model() if a.model == "R0" else finetune.load_run(a.model)
+    extra = tuple(v for v in m.task_config.target_variables if v not in inputs.SURFACE and v not in inputs.ATMOS)
     for month in range(1, 13):
         init = pd.Timestamp(f"{a.year}-{month:02d}-15T00")
         if (a.label, init) in done:
             continue
         t0 = time.perf_counter()
-        batch = inputs.build_batch(ds, init, phase3.N_STEPS, statics=statics, io_threads=a.io_threads)
+        batch = inputs.build_batch(ds, init, phase3.N_STEPS, statics=statics, io_threads=a.io_threads,
+                                   extra=extra)
         i, tg, fo = m.extract(batch, phase3.N_STEPS)
         del batch
         gc.collect()

@@ -27,23 +27,28 @@ from extremes import phase3, phase4, records, robust
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--labels", nargs="+", default=["R0", "Debias", "Persistence", "PBC"])
+    ap.add_argument("--base", default="R0", help="compare every other label with this one (Phase 6: R1)")
+    ap.add_argument("--tag", default="", help="suffix for the output files (Phase 6: _physics)")
     ap.add_argument("--bootstrap", type=int, default=5000)
     a = ap.parse_args()
+    if a.base not in a.labels:
+        a.labels = [a.base] + a.labels
+    b, tag = a.base, a.tag
     errs = {lab: pd.read_csv(phase3.OUT / f"{lab}_record_errors.csv.gz") for lab in a.labels}
-    p = robust.paired(errs)
-    n0 = len(errs["R0"])
+    p = robust.paired(errs, base=b)
+    n0 = len(errs[b])
     print(f"{len(p):,} record cell-times forecast by all of {', '.join(a.labels)} "
-          f"(R0 alone: {n0:,}; fewer = forecasts skipped in 43 for lack of hindcasts)")
+          f"({b} alone: {n0:,}; fewer = forecasts missing for some label)")
 
-    ev = robust.event_table(p, a.labels)
-    ev.to_csv(phase4.OUT / "robustness_events.csv", index=False)
-    rt = robust.robustness_table(p, a.labels, B=a.bootstrap)
-    rt.to_csv(phase4.OUT / "robustness.csv", index=False)
+    ev = robust.event_table(p, a.labels, base=b)
+    ev.to_csv(phase4.OUT / f"robustness_events{tag}.csv", index=False)
+    rt = robust.robustness_table(p, a.labels, base=b, B=a.bootstrap)
+    rt.to_csv(phase4.OUT / f"robustness{tag}.csv", index=False)
 
-    methods = [lab for lab in a.labels if lab != "R0"]
-    for metric, title, scale, unit in (("ie", "change of mean intensity error vs R0", 1, "K or m/s"),
-                                       ("hit", "change of hit rate vs R0", 100, "percentage points")):
-        print(f"\n{title} ({unit}; negative = worse than R0)")
+    methods = [lab for lab in a.labels if lab != b]
+    for metric, title, scale, unit in (("ie", f"change of mean intensity error vs {b}", 1, "K or m/s"),
+                                       ("hit", f"change of hit rate vs {b}", 100, "percentage points")):
+        print(f"\n{title} ({unit}; negative = worse than {b})")
         print("  delta [95% range from resampling events] {events worse/total}; "
               "range with one event left out")
         for (kind, d), g in rt[rt.metric == metric].groupby(["kind", "start_days"]):
@@ -68,11 +73,11 @@ def main():
             ax.scatter(x, e[f"delta_{m}"], marker=marks[m], label=m, alpha=0.75)
         ax.axhline(0, color="k", lw=0.8)
         ax.set_xticks(list(phase3.LEADS_DAYS)); ax.set_xlabel("forecast start, days before the peak")
-        ax.set_ylabel(f"change of intensity error vs R0 ({records.UNITS[kind]})")
+        ax.set_ylabel(f"change of intensity error vs {b} ({records.UNITS[kind]})")
         ax.set_title(f"{kind}: one dot per event ({e.event_id.nunique()} events); < 0 = worse")
         ax.legend(fontsize=8)
-    fig.tight_layout(); fig.savefig(phase4.OUT / "robustness_events.png", dpi=120)
-    print("\nwritten:", phase4.OUT / "robustness.csv", ", robustness_events.csv, robustness_events.png")
+    fig.tight_layout(); fig.savefig(phase4.OUT / f"robustness_events{tag}.png", dpi=120)
+    print("\nwritten:", phase4.OUT / f"robustness{tag}.csv", f", robustness_events{tag}.csv/.png")
 
 
 if __name__ == "__main__":

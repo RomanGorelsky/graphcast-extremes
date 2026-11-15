@@ -54,6 +54,14 @@ def run_dir(run: str) -> Path:
     return OUT / "runs" / run
 
 
+def load_flux_stats() -> tuple[xarray.Dataset, xarray.Dataset]:
+    """Mean and standard deviation of the 7 fluxes (written by 50_stage_data.py --stats)."""
+    f = xarray.load_dataset(FLUX_STATS)
+    mean = xarray.Dataset({v: f[f"mean_{v}"].astype("float32") for v in physics.FLUX_VARS})
+    std = xarray.Dataset({v: f[f"std_{v}"].astype("float32") for v in physics.FLUX_VARS})
+    return mean, std
+
+
 def month_files(years) -> list[Path]:
     """The staged month stores of the given years, in time order (train.Sampler)."""
     files = sorted(p for p in STAGED.glob("????-??.zarr") if int(p.name[:4]) in set(years))

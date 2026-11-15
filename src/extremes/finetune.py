@@ -156,3 +156,34 @@ def construct(model_config, task_config, stats: dict, schemes: tuple = (), use_b
                                          stddev_by_level=stats["stddev_by_level"])
     p = PhysicsPredictor(p, stats, schemes, weights)
     return autoregressive.Predictor(p, gradient_checkpointing=gradient_checkpointing)
+
+
+# ------------------------------------------------------------------ forecasting (Phase 6)
+def load_run(run: str, stage: int | None = None, use_bf16: bool = True):
+    """A fine-tuned run (R1-R4) as a forecast model with the same interface as R0's
+    (model.Model: extract / forecast); its conservation schemes act at every step.
+    stage=None: final weights; stage=k: the weights at the end of stage k."""
+    import haiku as hk
+    import jax
+    from weathernext.utils import checkpoint
+    from . import model, phase5
+
+    name = f"params_{run}.ckpt" if stage is None else f"params_{run}_stage{stage}.ckpt"
+    with open(phase5.run_dir(run) / name, "rb") as f:
+        ck = checkpoint.load(f, graphcast.CheckPoint)
+    stats = extend_stats(model.load_stats(model.paths.ASSETS_DIR), *phase5.load_flux_stats())
+    schemes = RUNS[run]
+
+    class FineTuned(model.Model):
+        def __post_init__(self):
+            @hk.transform_with_state
+            def run_forward(inputs, targets_template, forcings):
+                return construct(self.model_config, self.task_config, self.stats, schemes, self.use_bf16,
+                                 gradient_checkpointing=False)(inputs, targets_template, forcings)
+            self._transformed = run_forward
+            apply = jax.jit(run_forward.apply)
+            self._forward = lambda **kw: apply(self.params, self.state, **kw)[0]
+
+    return FineTuned(params=ck.params, state={}, model_config=ck.model_config, task_config=ck.task_config,
+                     stats=stats, description=ck.description, use_bf16=use_bf16)
+
