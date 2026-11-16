@@ -151,6 +151,18 @@ python scripts/45_robustness.py --labels R1 R2 R3 R4 --base R1 --tag _physics   
 python scripts/61_phase6_summary.py                                       # ordinary weather + sharpness
 ```
 
+### Phase 6b — ordinary weather, 52 dates (do the methods help everyday forecasts?)
+
+52 weekly 10-day forecasts of 2020 with R0-R4, scored at lead days 1-10: RMSE and bias
+(t2m, u10, v10, msl, z500, t850), anomaly correlation and activity against the
+WeatherBench2 1990-2019 climatology (skipped if it cannot be opened), and the global
+dry-air mass / water vapour / energy of each forecast vs ERA5's.
+
+1. Cluster (1 GPU per model, 2 at a time, ~1 h per model): `sbatch slurm/phase6_ordinary.sbatch`
+   -> `results/phase6/ordinary/R0..R4.csv` and `truth_budgets.csv` (resumable).
+2. Mac: copy `results/phase6/ordinary/` over, then `python scripts/64_ordinary_summary.py`
+   -> tables, `ordinary_change_vs_R0.csv`, `budget_drift.csv`, `ordinary_skill.png`.
+
 ## Cluster (MBZUAI Shared-Cluster-v3, H100)
 
 Connect with `ssh shared-cluster-v3` (see the cluster user guide). Heavy work runs only as
