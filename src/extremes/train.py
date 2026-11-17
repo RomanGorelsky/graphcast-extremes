@@ -79,6 +79,10 @@ class TrainConfig:
     ckpt_every: int = 250
     seed: int = 0
     use_bf16: bool = True
+    loss: str = "auto"                   # "mse", "amse", or "auto" = finetune.RUN_LOSS of the run
+
+    def loss_kind(self) -> str:
+        return finetune.RUN_LOSS.get(self.run, "mse") if self.loss == "auto" else self.loss
 
     def stage_ends(self) -> list[int]:
         """Global step at which each stage ends."""
@@ -173,10 +177,11 @@ class Sampler:
 
 
 # ------------------------------------------------------------------ model functions
-def make_loss(model_config, task_config, stats, schemes, use_bf16=True, weights=None):
+def make_loss(model_config, task_config, stats, schemes, use_bf16=True, weights=None, loss_kind="mse"):
     @hk.transform_with_state
     def loss_fn(inp, tgt, frc):
-        p = finetune.construct(model_config, task_config, stats, schemes, use_bf16, weights=weights)
+        p = finetune.construct(model_config, task_config, stats, schemes, use_bf16, weights=weights,
+                               loss_kind=loss_kind)
         loss, diag = p.loss(inp, tgt, frc)
         unwrap = lambda x: xarray_jax.unwrap_data(x.mean(), require_jax=True)   # noqa: E731
         return unwrap(loss), {k: unwrap(v) for k, v in diag.items()}
@@ -271,10 +276,14 @@ def train(cfg: TrainConfig, out: Path, sampler: Sampler, val_sampler: Sampler, m
     out.mkdir(parents=True, exist_ok=True)
     (out / "config.json").write_text(json.dumps(dataclasses.asdict(cfg), indent=1))
     schemes = finetune.RUNS[cfg.run]
+    kind = cfg.loss_kind()
     loss_fn = make_loss(model_config, task_config, stats, schemes, cfg.use_bf16,
-                        weights=finetune.loss_weights(cfg.flux_weight))
+                        weights=finetune.loss_weights(cfg.flux_weight), loss_kind=kind)
+    # validation always with plain MSE, so R5's scores are comparable with R0-R4
+    val_loss_fn = loss_fn if kind == "mse" else make_loss(model_config, task_config, stats, schemes, cfg.use_bf16,
+                                                          weights=finetune.loss_weights(cfg.flux_weight))
     opt = optimizer(cfg)
-    step_fn, eval_fn = make_step(loss_fn, opt), make_eval(loss_fn)
+    step_fn, eval_fn = make_step(loss_fn, opt), make_eval(val_loss_fn)
     head_fn = None
     if any(st.head_only for st in cfg.stages):
         if old_task is None:

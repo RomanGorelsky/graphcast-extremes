@@ -163,6 +163,83 @@ dry-air mass / water vapour / energy of each forecast vs ERA5's.
 2. Mac: copy `results/phase6/ordinary/` over, then `python scripts/64_ordinary_summary.py`
    -> tables, `ordinary_change_vs_R0.csv`, `budget_drift.csv`, `ordinary_skill.png`.
 
+## Phase 7 — the in-scope prospects (cluster + Mac)
+
+Four follow-up experiments from the report's "Prospects". Tests: `python -m pytest -q tests/test_phase7.py`.
+
+| Prospect | What | Code | Where |
+| --- | --- | --- | --- |
+| 1 Tail-targeted post-processing | quantile mapping of R0 learned from the 2016-2019 hindcasts, applied everywhere (QM), only in the tails (TailQM), or only from hindcasts in the same K-means regime (TailQM-reg) | `extremes/tailcorr.py`, `71_tail_correction.py` | Mac |
+| 2 More events and years | records, DBSCAN, Isolation Forest and regimes for 2021 and 2022 (the WeatherBench2 ERA5 store ends 2023-01-10, so not 2023); record-shattering events of 2020-2022 + the 14 originals | `extremes/extended.py`, `70_select_extended.py`, `EXTREMES_SET=ext` | cluster + Mac |
+| 3 Sharpness-preserving training (R5) | R1 retrained with an "adjusted MSE" loss (after Subich et al. 2025, on the grid: field + its east-west and north-south gradients) that does not reward smoothing | `finetune.amse_per_level`, `51_train.py --run R5` | cluster |
+| 4 Perturbed-start ensemble | 20 members + R0 control, starts perturbed by alpha x (difference of two ERA5 states of other years at the same season), in +/- pairs; record probabilities and spread | `extremes/ensemble.py`, `72_ensemble_forecasts.py`, `73_ensemble_verify.py` | cluster + Mac |
+
+**The event set switch.** With `EXTREMES_SET=ext` every Phase 3/4/6 script (31, 33, 40-46,
+61, 71, 72, 73) works on `results/phase2/case_studies_ext.csv` and reads/writes
+`results/sets/ext/phase3`, `phase4`, `phase6`, `phase7` instead of `results/phase3` ... -
+the original 14-event results are never touched. Unset = the 14 original case studies.
+
+### Once, on the Mac (the cluster needs two Phase 1-2 files that git normally skips)
+
+```bash
+git add -f results/phase1/thresholds_1979-2015_1deg.nc results/phase2/records_2020_labeled.csv.gz
+git commit -m "Phase 7 inputs" && git push        # (or commit/push in GitHub Desktop)
+```
+
+### Cluster (`git pull` first; at most 3 GPUs at a time, at most 5 jobs submitted)
+
+```bash
+sbatch slurm/phase7_events.sbatch          # CPU, ~4-6 h: 2021-2022 records, events -> case_studies_ext.csv
+sbatch slurm/phase7_train_r5.sbatch        # GPU 1: R5 (resumable, resubmit if stopped)
+sbatch slurm/phase7_ensemble.sbatch        # GPU 2: ensembles of the 14 case studies, alpha 0.1 (~3-4 h)
+sbatch --export=ALL,ALPHA=0.2 slurm/phase7_ensemble.sbatch     # GPU 3: the same with alpha 0.2
+# when phase7_events is done (and the ensembles have freed their GPUs):
+EXTREMES_SET=ext python scripts/40_hindcast_plan.py --years 2019 2018     # login node, seconds
+sbatch slurm/phase7_ext_truth.sbatch       # CPU
+sbatch --array=0-2%2 slurm/phase7_ext_forecasts.sbatch    # R0, R1, R4 on the extended set (2 GPUs + R5's = 3)
+# when R5 is trained:
+sbatch slurm/phase7_r5_eval.sbatch         # R5 on the 14 case studies + 52 ordinary dates
+sbatch --array=3 slurm/phase7_ext_forecasts.sbatch        # R5 on the extended set
+# GPUs free again:
+sbatch --array=0-2 slurm/phase7_ext_hindcasts.sbatch      # 3 GPUs, hindcasts for PBC/QM on the extended set
+```
+
+Then copy the results to S3 from the cluster (`aws s3 sync results s3://.../results --region
+ap-northeast-1`) and down to the Mac (the same command with the two places swapped).
+
+### Mac
+
+```bash
+# 1. tail post-processing (14 case studies; hindcasts and truth from Phase 4 are already here)
+python scripts/71_tail_correction.py
+for m in QM TailQM TailQM-reg; do python scripts/33_verify.py --label $m --forecasts results/phase4/forecasts_$m --no-maps; done
+python scripts/44_compare.py --labels R0 PBC QM TailQM TailQM-reg --tag _tail
+python scripts/45_robustness.py --labels R0 PBC QM TailQM TailQM-reg --tag _tail
+
+# 3. R5 on the 14 case studies and on ordinary weather
+python scripts/33_verify.py --label R5 --forecasts results/phase6/forecasts_R5 --no-maps
+python scripts/44_compare.py --labels R0 R1 R5 --tag _sharp
+python scripts/45_robustness.py --labels R1 R5 --base R1 --tag _sharp
+python scripts/61_phase6_summary.py --labels R0 R1 R5         # sharpness
+python scripts/64_ordinary_summary.py --labels R0 R1 R4 R5
+
+# 4. ensembles
+python scripts/73_ensemble_verify.py
+python scripts/33_verify.py --label ENSmean --forecasts results/phase7/forecasts_ENSmean_a0.1 --no-maps
+python scripts/44_compare.py --labels R0 ENSmean --tag _ens
+
+# 2. the extended set (after its forecasts; corrections after its hindcasts and truth)
+export EXTREMES_SET=ext
+python scripts/33_verify.py --label R0 --no-maps
+for r in R1 R4 R5; do python scripts/33_verify.py --label $r --forecasts results/sets/ext/phase6/forecasts_$r --no-maps; done
+python scripts/44_compare.py --labels R0 R1 R4 R5 --tag _physics
+python scripts/45_robustness.py --labels R1 R4 R5 --base R1 --tag _physics
+python scripts/43_apply_pbc.py && python scripts/71_tail_correction.py
+for m in PBC TailQM; do python scripts/33_verify.py --label $m --forecasts results/sets/ext/phase4/forecasts_$m --no-maps; done
+python scripts/45_robustness.py --labels R0 PBC TailQM --tag _corrections
+unset EXTREMES_SET
+```
+
 ## Cluster (MBZUAI Shared-Cluster-v3, H100)
 
 Connect with `ssh shared-cluster-v3` (see the cluster user guide). Heavy work runs only as

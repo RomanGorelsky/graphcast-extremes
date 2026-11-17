@@ -42,12 +42,14 @@ def main():
     g = t[t.start_days == "all"].pivot_table(index=["kind", "group"], columns="label", values="mean_intensity_error")
     print("\nmean intensity error, record-shattering vs ordinary\n" + g[a.labels].round(2).to_string())
 
-    hf = phase4.OUT / "harm_check.csv"
-    if hf.exists():
-        h = pd.read_csv(hf)
-        cols = [f"rmse_{lab}" for lab in a.labels if f"rmse_{lab}" in h]
-        print("\nbox-wide RMSE (all cells and times; must not get worse)\n" +
-              h.groupby(["quantity", "start_days"])[cols].mean().round(3).to_string())
+    for name in ("harm_check.csv", "harm_check_tail.csv"):      # Phase 4 corrections; Phase 7 tail ones
+        hf = phase4.OUT / name
+        if hf.exists():
+            h = pd.read_csv(hf)
+            cols = [f"rmse_{lab}" for lab in a.labels if f"rmse_{lab}" in h]
+            if len(cols) > 1:
+                print(f"\nbox-wide RMSE (all cells and times; must not get worse) - {name}\n" +
+                      h.groupby(["quantity", "start_days"])[cols].mean().round(3).to_string())
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.3))
     for ax, kind in zip(axes, records.KINDS):

@@ -8,6 +8,7 @@ Writes results/phase4/hindcast_plan.csv (init, event_ids) and prints the number 
 runs, the number of training samples per event start, and a time estimate.
 
     python scripts/40_hindcast_plan.py
+    EXTREMES_SET=ext python scripts/40_hindcast_plan.py --years 2019 2018     # Phase 7 extended set
 """
 import argparse
 
@@ -19,8 +20,10 @@ from extremes import phase3, phase4
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--minutes-per-run", type=float, default=1.5)
+    ap.add_argument("--years", type=int, nargs="+", default=list(phase4.YEARS),
+                    help="training years of the hindcasts (Phase 7 extended set: 2019 2018 halves the GPU time)")
     a = ap.parse_args()
-    p = phase4.plan()
+    p = phase4.plan(years=tuple(a.years))
     runs = (p.groupby("init").event_id.apply(lambda s: " ".join(sorted(set(s)))).rename("event_ids")
             .reset_index())
     runs["year"] = runs.init.dt.year
@@ -31,7 +34,7 @@ def main():
     per = p.groupby(["event_id", "start_days"]).size()
     print(f"{len(runs)} hindcast runs ({', '.join(f'{y}: {n}' for y, n in runs.year.value_counts().sort_index(ascending=False).items())})")
     print(f"training samples per event start: min {per.min()}, max {per.max()} "
-          f"(= {phase4.HALF_WINDOW * 2 + 1} days x {len(phase4.YEARS)} years)")
+          f"(= {phase4.HALF_WINDOW * 2 + 1} days x {len(a.years)} years)")
     print(f"events served per run: mean {runs.event_ids.str.split().str.len().mean():.1f}")
     h = len(runs) * a.minutes_per_run / 60
     print(f"estimated GPU time at {a.minutes_per_run} min/run: {h:.0f} h "

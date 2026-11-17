@@ -12,7 +12,7 @@ import pandas as pd
 
 from . import paths, phase3
 
-OUT = paths.RESULTS_DIR / "phase4"
+OUT = paths.set_dir("phase4")            # results/phase4, or results/sets/<SET>/phase4
 HINDCASTS = OUT / "hindcasts"
 TRUTH = OUT / "truth"
 CORRECTED = OUT / "forecasts_PBC"
@@ -37,13 +37,13 @@ def training_inits(event_init, years=YEARS, half_window: int = HALF_WINDOW) -> l
     return sorted(t for t in out if lo <= t <= hi)
 
 
-def plan(cases: pd.DataFrame | None = None) -> pd.DataFrame:
+def plan(cases: pd.DataFrame | None = None, years=YEARS) -> pd.DataFrame:
     """One row per (hindcast start, event) that needs it."""
     cases = phase3.case_studies() if cases is None else cases
     rows = []
     for c in cases.itertuples():
         for d in phase3.LEADS_DAYS:
-            for t in training_inits(getattr(c, f"init_minus_{d}d")):
+            for t in training_inits(getattr(c, f"init_minus_{d}d"), years):
                 rows.append(dict(init=t, event_id=c.event_id, start_days=d))
     p = pd.DataFrame(rows).drop_duplicates(["init", "event_id", "start_days"])
     return p

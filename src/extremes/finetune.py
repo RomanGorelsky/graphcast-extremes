@@ -9,6 +9,7 @@ Model stack (outermost first):
 
 Runs (identical data, steps and learning rate):
   R1 control (new outputs, no schemes) | R2 + dry-air mass | R3 + moisture | R4 + energy
+  R5 (Phase 7): R1 trained with the sharpness-preserving loss `amse_per_level` instead of MSE
 
 The 7 new outputs are target-only (like precipitation in GraphCast_small): predicted,
 never fed back. The decoder's last layer is grown by their channels; the existing
@@ -28,7 +29,9 @@ from weathernext.weathernext1_graph import graphcast
 
 from . import physics
 
-RUNS = {"R1": (), "R2": ("mass",), "R3": ("mass", "moisture"), "R4": ("mass", "moisture", "energy")}
+RUNS = {"R1": (), "R2": ("mass",), "R3": ("mass", "moisture"), "R4": ("mass", "moisture", "energy"),
+        "R5": ()}                          # Phase 7, prospect 3: R1 with a sharpness-preserving loss
+RUN_LOSS = {"R5": "amse"}                  # training loss per run (default "mse"); validation is always MSE
 FLUX_LOSS_WEIGHT = 0.1                     # as GraphCast weights precipitation (Sha et al.: 0.1)
 LOSS_WEIGHTS = {                           # graphcast.GraphCast.loss_and_predictions, + the fluxes
     "2m_temperature": 1.0, "10m_u_component_of_wind": 0.1, "10m_v_component_of_wind": 0.1,
@@ -112,13 +115,17 @@ class PhysicsPredictor(predictor_base.Predictor):
     space as GraphCast's own training (residuals for variables that are also inputs,
     values for target-only ones), with LOSS_WEIGHTS."""
 
-    def __init__(self, predictor, stats: dict, schemes: tuple = (), loss_weights: dict | None = None):
+    def __init__(self, predictor, stats: dict, schemes: tuple = (), loss_weights: dict | None = None,
+                 loss_kind: str = "mse"):
+        if loss_kind not in ("mse", "amse"):
+            raise ValueError(f"unknown loss {loss_kind!r}")
         self._predictor = predictor
         self._schemes = tuple(schemes)
         self._scales = stats["stddev_by_level"]
         self._locations = stats["mean_by_level"]
         self._residual_scales = stats["diffs_stddev_by_level"]
         self._weights = dict(LOSS_WEIGHTS if loss_weights is None else loss_weights)
+        self._loss_kind = loss_kind
 
     def __call__(self, inputs, targets_template, forcings, **kwargs):
         pred = self._predictor(inputs, targets_template, forcings=forcings, **kwargs)
@@ -134,11 +141,67 @@ class PhysicsPredictor(predictor_base.Predictor):
         norm_pred = xarray_tree.map_structure(lambda x: self._normalise(inputs, x), pred)
         norm_targ = xarray_tree.map_structure(lambda x: self._normalise(inputs, x), targets)
         weights = {k: w for k, w in self._weights.items() if k in targets}
-        loss = losses.weighted_mse_per_level(norm_pred, norm_targ, per_variable_weights=weights)
+        if self._loss_kind == "amse":
+            loss = amse_per_level(norm_pred, norm_targ, per_variable_weights=weights)
+        else:
+            loss = losses.weighted_mse_per_level(norm_pred, norm_targ, per_variable_weights=weights)
         return loss, pred
 
     def loss(self, inputs, targets, forcings, **kwargs):
         return self.loss_and_predictions(inputs, targets, forcings, **kwargs)[0]
+
+
+# ------------------------------------------------------------------ sharpness-preserving loss (R5)
+AMSE_EPS = 1e-6
+
+
+def _amse_band(f, t, w):
+    """'Adjusted MSE' of one field pair over (lat, lon), after Subich et al. (2025).
+
+    With latitude-weighted means m, standard deviations s and correlation r:
+        MSE  = (m_f - m_t)^2 + (s_f - s_t)^2 + 2 s_f s_t (1 - r)
+        AMSE = (m_f - m_t)^2 + (s_f - s_t)^2 + 2 max(s_f, s_t)^2 (1 - r)
+    Under plain MSE an uncertain forecast (r < 1) lowers its loss by shrinking s_f -
+    i.e. by smoothing. In AMSE the last term no longer shrinks with s_f, so smoothing
+    only costs (through (s_f - s_t)^2). AMSE >= MSE, with equality when s_f = s_t."""
+    def mean(x):
+        return (x * w).mean(("lat", "lon"))
+    mf, mt = mean(f), mean(t)
+    df, dt = f - mf, t - mt
+    vf, vt, cov = mean(df * df), mean(dt * dt), mean(df * dt)
+    sf, st = (vf + AMSE_EPS) ** 0.5, (vt + AMSE_EPS) ** 0.5
+    vmax = 0.5 * (vf + vt + abs(vf - vt))                 # max(vf, vt) without a branch
+    return (mf - mt) ** 2 + (sf - st) ** 2 + 2 * vmax * (1 - cov / (sf * st))
+
+
+def _gradients(x):
+    """East-west (periodic) and north-south differences between neighbouring cells -
+    the small-scale detail that smoothing removes first."""
+    # slices + concat (not integer-array indexing), which works the same on numpy and JAX data
+    east = xarray.concat([x.isel(lon=slice(1, None)), x.isel(lon=slice(0, 1))], "lon")
+    gx = east.assign_coords(lon=x.lon) - x
+    lower = x.isel(lat=slice(None, -1))
+    gy = x.isel(lat=slice(1, None)).assign_coords(lat=lower.lat) - lower
+    return gx, gy
+
+
+def amse_per_level(predictions, targets, per_variable_weights=None, gradient_weight: float = 1.0):
+    """Drop-in for losses.weighted_mse_per_level (same weights, same output form): per
+    variable, AMSE of the field + gradient_weight x mean AMSE of its two gradient fields,
+    pressure-level weighted, averaged over everything but the batch."""
+    def one(p, t):
+        w = losses.normalized_latitude_weights(t).astype(p.dtype)
+        loss = _amse_band(p, t, w)
+        if gradient_weight:
+            (px, py), (tx, ty) = _gradients(p), _gradients(t)
+            wy = w.isel(lat=slice(None, -1))
+            wy = wy / wy.mean()
+            loss = loss + gradient_weight * 0.5 * (_amse_band(px, tx, w) + _amse_band(py, ty, wy))
+        if "level" in t.dims:
+            loss = loss * losses.normalized_level_weights(t).astype(loss.dtype)
+        return loss.mean([d for d in loss.dims if d != "batch"])
+    per_var = xarray_tree.map_structure(one, predictions, targets)
+    return losses.sum_per_variable_losses(per_var, per_variable_weights or {})
 
 
 def loss_weights(flux_weight: float = FLUX_LOSS_WEIGHT) -> dict:
@@ -147,14 +210,14 @@ def loss_weights(flux_weight: float = FLUX_LOSS_WEIGHT) -> dict:
 
 
 def construct(model_config, task_config, stats: dict, schemes: tuple = (), use_bf16: bool = True,
-              gradient_checkpointing: bool = True, weights: dict | None = None):
+              gradient_checkpointing: bool = True, weights: dict | None = None, loss_kind: str = "mse"):
     """The full model stack; call inside a haiku transform."""
     p = graphcast.GraphCast(model_config, task_config)
     p = casting.Bfloat16Cast(p, enabled=use_bf16)
     p = normalization.InputsAndResiduals(p, diffs_stddev_by_level=stats["diffs_stddev_by_level"],
                                          mean_by_level=stats["mean_by_level"],
                                          stddev_by_level=stats["stddev_by_level"])
-    p = PhysicsPredictor(p, stats, schemes, weights)
+    p = PhysicsPredictor(p, stats, schemes, weights, loss_kind)
     return autoregressive.Predictor(p, gradient_checkpointing=gradient_checkpointing)
 
 

@@ -1,7 +1,9 @@
 """Phase 3, step 4 (Mac): how much does GraphCast_small (R0) underestimate the case studies?
 
 Needs results/phase3/forecasts/*.nc (from Colab), results/phase2/{case_studies.csv,
-events_2020.csv, records_2020_labeled.csv.gz} and the Phase 1 thresholds.
+events_<year>.csv, records_<year>_labeled.csv.gz} and the Phase 1 thresholds.
+With EXTREMES_SET=ext (Phase 7) it verifies the extended set: case_studies_ext.csv,
+events of every year in it, results under results/sets/ext/.
 
 Writes to results/phase3/ (with --label, default R0, so later models get their own files):
   <label>_record_errors.csv.gz  every verified record cell-time
@@ -38,15 +40,18 @@ def main():
     a = ap.parse_args()
     fdir = phase3.FORECASTS if a.forecasts is None else type(phase3.FORECASTS)(a.forecasts)
     cases = phase3.case_studies()
-    ev = pd.read_csv(P2 / "events_2020.csv")
-    lab = pd.read_csv(P2 / "records_2020_labeled.csv.gz", parse_dates=["time"])
+    tables = phase3.event_tables(cases.year)          # {year: (events, labelled records)}
     th = xarray.load_dataset(phase1.thresholds_path())
     mask = th["analysis_mask"]
 
+    def event_and_records(c):
+        ev, lab = tables[int(c.year)]
+        e = ev[ev.event_id == c.source_event_id].iloc[0]
+        return e, lab[(lab.kind == c.kind) & (lab.event == e.event)]
+
     all_err, rows = [], []
     for c in cases.itertuples():
-        e = ev[ev.event_id == c.event_id].iloc[0]
-        recs = lab[(lab.kind == c.kind) & (lab.event == e.event)]
+        e, recs = event_and_records(c)
         for d in phase3.LEADS_DAYS:
             p = fdir / phase3.forecast_path(c.event_id, d).name
             if not p.exists():
@@ -143,8 +148,8 @@ def main():
             files = [f for f in files if f.exists()]
             if not files:
                 continue
-            e = ev[ev.event_id == c.event_id].iloc[0]
-            recs = lab[(lab.kind == c.kind) & (lab.event == e.event) & (lab.time == pd.Timestamp(c.peak_time))]
+            e, recs = event_and_records(c)
+            recs = recs[recs.time == pd.Timestamp(c.peak_time)]
             dsets = [xarray.load_dataset(f) for f in files]
             peak = pd.Timestamp(c.peak_time)
             truth = verify.field(dsets[0], "truth", c.kind).sel(time=peak)

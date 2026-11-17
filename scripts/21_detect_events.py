@@ -12,6 +12,7 @@ Writes to results/phase2/:
 
     python scripts/21_detect_events.py
     python scripts/21_detect_events.py --space-km 300 --time-h 12 --min-samples 5
+    python scripts/21_detect_events.py --year 2021          # Phase 7: same settings, another year
 """
 import argparse
 import json
@@ -52,7 +53,8 @@ def main():
     ax.set_ylim(0, 4); ax.set_xlabel("records, sorted (%)")
     ax.set_ylabel(f"distance to {a.min_samples}-th neighbour (scaled)")
     ax.set_title(f"k-distance ({a.space_km:.0f} km / {a.time_h:.0f} h = 1)"); ax.legend()
-    fig.tight_layout(); fig.savefig(OUT / "kdistance.png", dpi=110); plt.close(fig)
+    kd_name = "kdistance.png" if a.year == 2020 else f"kdistance_{a.year}.png"     # keep the 2020 figure
+    fig.tight_layout(); fig.savefig(OUT / kd_name, dpi=110); plt.close(fig)
 
     # DBSCAN per kind
     df["event"] = -1

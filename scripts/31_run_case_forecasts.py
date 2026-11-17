@@ -12,6 +12,9 @@ Resumable: existing files are skipped.
     python scripts/31_run_case_forecasts.py --only heat-004 wind-004     # a subset
     python scripts/31_run_case_forecasts.py --model R4                   # Phase 6: a fine-tuned run
                                      # -> results/phase6/forecasts_R4/ (its schemes act at every step)
+    EXTREMES_SET=ext python scripts/31_run_case_forecasts.py --model R1 --shard 0 --num-shards 2
+                                     # Phase 7: the extended event set, half of it
+                                     # -> results/sets/ext/phase6/forecasts_R1/
 """
 import argparse
 import gc
@@ -29,7 +32,11 @@ def main():
     ap.add_argument("--io-threads", type=int, default=32)
     ap.add_argument("--model", default="R0", help="R0 (GraphCast_small) or a fine-tuned run R1-R4")
     ap.add_argument("--stage", type=int, default=None, help="fine-tuned run: weights after this stage")
+    ap.add_argument("--shard", type=int, default=0, help="this job's share of the forecasts (0 .. num-shards-1)")
+    ap.add_argument("--num-shards", type=int, default=1)
     a = ap.parse_args()
+    if not 0 <= a.shard < a.num_shards:
+        ap.error("--shard must be between 0 and --num-shards - 1")
     cases = phase3.case_studies()
     if a.only:
         cases = cases[cases.event_id.isin(a.only)]
@@ -37,7 +44,7 @@ def main():
         folder, m, label = phase3.FORECASTS, model.load_model(), "GraphCast_small (R0)"
     else:
         tag = a.model if a.stage is None else f"{a.model}s{a.stage}"
-        folder = paths.RESULTS_DIR / "phase6" / f"forecasts_{tag}"
+        folder = paths.set_dir("phase6") / f"forecasts_{tag}"
         m = finetune.load_run(a.model, a.stage)
         label = f"GraphCast_small fine-tuned ({tag}, schemes: {finetune.RUNS[a.model] or 'none'})"
     folder.mkdir(parents=True, exist_ok=True)
@@ -49,10 +56,12 @@ def main():
     extra = tuple(v for v in m.task_config.target_variables if v not in inputs.SURFACE and v not in inputs.ATMOS)
     ds = era5.open_store(era5.WB2_ERA5)
     statics = inputs.load_statics(ds)
-    todo = [(c, d) for c in cases.itertuples() for d in phase3.LEADS_DAYS
-            if not path_of(c.event_id, d).exists()]
-    print(f"{len(cases)} events, {len(todo)} forecasts to run "
-          f"({len(cases) * len(phase3.LEADS_DAYS) - len(todo)} done earlier)", flush=True)
+    mine = [(c, d) for c in cases.itertuples() for d in phase3.LEADS_DAYS]
+    mine = [x for k, x in enumerate(mine) if k % a.num_shards == a.shard]      # fixed split
+    todo = [(c, d) for c, d in mine if not path_of(c.event_id, d).exists()]
+    share = f" (share {a.shard + 1} of {a.num_shards})" if a.num_shards > 1 else ""
+    print(f"{len(cases)} events{share}: {len(todo)} forecasts to run "
+          f"({len(mine) - len(todo)} done earlier) -> {folder}", flush=True)
 
     t_start = time.perf_counter()
     for n, (c, d) in enumerate(todo, 1):

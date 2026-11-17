@@ -13,6 +13,9 @@ and adds regime + regime_frequency to events_2020.csv (regime of the event's pea
 in its sector; events outside the sectors get none).
 
     python scripts/23_regimes.py
+    python scripts/23_regimes.py --year 2021 --z500 z500_daily_1979-2022_2p8deg.nc     # Phase 7
+The regimes are fitted on 1979-2015 only, so a longer z500 file gives the same regimes
+(same centroids, same labels for 1979-2020); later days just get a label too.
 """
 import argparse
 import json
@@ -30,8 +33,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--year", type=int, default=2020)
     ap.add_argument("--n-pcs", type=int, default=10)
+    ap.add_argument("--z500", default="z500_daily_1979-2020_2p8deg.nc",
+                    help="file in results/phase2 (Phase 7: z500_daily_1979-2022_2p8deg.nc for 2021-2022)")
     a = ap.parse_args()
-    z = xarray.load_dataarray(OUT / "z500_daily_1979-2020_2p8deg.nc")
+    z = xarray.load_dataarray(OUT / a.z500)
     print(f"z500: {z.sizes['time']} days, grid {z.sizes['lat']} x {z.sizes['lon']}", flush=True)
     anom = regimes.anomalies(z)
 

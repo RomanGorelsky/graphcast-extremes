@@ -26,7 +26,7 @@ import xarray
 
 from extremes import paths, phase3, phase4
 
-OUT = paths.RESULTS_DIR / "phase6"
+OUT = paths.set_dir("phase6")                # results/phase6, or results/sets/<SET>/phase6
 T2M, U, V = "2m_temperature", "10m_u_component_of_wind", "10m_v_component_of_wind"
 
 
