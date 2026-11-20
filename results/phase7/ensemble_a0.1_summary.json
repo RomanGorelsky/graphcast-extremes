@@ -1,0 +1,8 @@
+{
+ "alpha": 0.1,
+ "members": 21,
+ "spread_to_error_day5": {
+  "t2m": 0.836,
+  "wind": 0.876
+ }
+}

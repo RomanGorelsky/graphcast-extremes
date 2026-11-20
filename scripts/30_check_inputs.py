@@ -88,7 +88,7 @@ def main():
     print("one-step forecast, max |difference| between the two batches (ignoring NaN):", dmax,
           "| same output grid:", same_grid)
     (OUT / "input_check.json").write_text(json.dumps(report, indent=1))
-    print("\nALL INPUTS MATCH" if ok else "\nMISMATCH - send this output to Claude before running forecasts")
+    print("\nALL INPUTS MATCH" if ok else "\nMISMATCH - investigate before running forecasts")
 
 
 if __name__ == "__main__":

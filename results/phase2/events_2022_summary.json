@@ -1,0 +1,32 @@
+{
+ "params": {
+  "year": 2022,
+  "space_km": 250,
+  "time_h": 12,
+  "eps": 1.0,
+  "min_samples": 5
+ },
+ "per_kind": {
+  "heat": {
+   "records": 20326,
+   "events": 667,
+   "share_in_events": 0.788,
+   "largest_event_cells": 453,
+   "median_event_cells": 10.0
+  },
+  "cold": {
+   "records": 5609,
+   "events": 148,
+   "share_in_events": 0.744,
+   "largest_event_cells": 473,
+   "median_event_cells": 8.0
+  },
+  "wind": {
+   "records": 8045,
+   "events": 273,
+   "share_in_events": 0.619,
+   "largest_event_cells": 245,
+   "median_event_cells": 7.0
+  }
+ }
+}

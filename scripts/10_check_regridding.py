@@ -71,7 +71,7 @@ def main():
     print(f"\nchosen: {best}  (mean RMSE {b['mean_rmse']:.5f}; others: " +
           ", ".join(f"{c} {v['mean_rmse']:.4f}" for c, v in report["candidates"].items() if c != best) + ")")
     print("exact match - same processing as the training data" if report["exact_match"] else
-          "WARNING: no exact match; the closest source is used - tell Claude these numbers")
+          "WARNING: no exact match; the closest source is used - check these numbers before continuing")
 
 
 if __name__ == "__main__":

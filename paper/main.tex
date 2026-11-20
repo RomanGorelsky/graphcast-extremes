@@ -16,6 +16,8 @@
 \usepackage{xcolor}
 \usepackage{graphicx}
 \usepackage{subcaption}
+\usepackage{multirow}
+\usepackage[section]{placeins}
 \usepackage{enumitem}
 \usepackage{tikz}
 \usetikzlibrary{positioning,arrows.meta,shapes.geometric}
@@ -24,9 +26,11 @@
 \hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black}
 \setlist{itemsep=1pt,topsep=3pt}
 \newcommand{\R}[1]{\textsf{R#1}}
+\newcommand{\up}{\textcolor{green!45!black}{$+$}}
+\newcommand{\dn}{\textcolor{red!70!black}{$-$}}
 
 \title{Can Physics or Statistics Fix How AI Weather Models\\Underestimate Record-Breaking Extremes?\\
-A Case Study of GraphCast on the Records of 2020}
+A Case Study of GraphCast on the Records of 2020--2022}
 
 \author{%
   Roman Gorelskii\\
@@ -45,17 +49,18 @@ We test two remedies proposed in the recent literature on GraphCast\_small, a
 1$^\circ$ version of DeepMind's GraphCast: (i) a statistical post-processing step inspired by the
 probabilistic bias correction (PBC) of Guan et al., and (ii) the global mass, moisture and energy
 conservation schemes of Sha et al., built into the model and fine-tuned on an H100 cluster.
-To obtain a clean test set we first detect every record of 2020 in the ERA5 reanalysis and
+To obtain a clean test set we detect every record in the ERA5 reanalysis and
 use three unsupervised methods to turn them into events: DBSCAN groups record cells into
 space--time events, an Isolation Forest flags the record-shattering ones, and K-means on
-500\,hPa height patterns assigns each event a weather regime. On 14 case-study events
-(10{,}766 record cell-times) neither remedy reduces the underestimation. The statistical correction improves ordinary
-forecasts but pulls uncertain forecasts toward normal conditions, which makes heat records 7 days ahead 2.3\,K worse.
-Mass and moisture conservation close their budgets exactly, remove a slow moistening drift of the
-model and cost no skill on 52 ordinary dates, yet leave records unchanged. Energy conservation, which relies on
-learned fluxes, degrades both records and ordinary forecasts. The only gain, about 1\,K for heat
-records 7 days ahead, comes from fine-tuning that made forecasts less smooth. Our results suggest that
-underestimated extremes are a problem of smoothing and of the tails of the distribution, not of global physical balance.
+500\,hPa height patterns assigns each event a weather regime. On 14 case studies of 2020 neither remedy reduces the underestimation:
+the PBC-inspired correction pulls uncertain forecasts toward normal conditions, and the conservation schemes close their global budgets
+(removing a slow moistening drift at no cost in skill) but leave records unchanged; energy conservation, which relies on learned fluxes, makes them worse.
+We then test four follow-ups and verify every conclusion on an extended set of 102 events of 2020--2022 (64{,}955 record cell-times):
+a tail-targeted quantile mapping, a fine-tune with a sharpness-preserving loss, a perturbed-start ensemble, and the extended set itself.
+Quantile mapping of the forecast's \emph{tails} brings cold, wind and short-range heat forecasts 0.5--0.8 units closer to the records in nearly every event
+(hit rates +8 to +19 points), while PBC makes 7-day heat records 1.8\,K worse in 41 of 47 events. The only method that improves heat records a week ahead
+is fine-tuning that reduced the model's smoothing (+1.0\,K, replicated on 102 events). Two gains seen on 14 events did not replicate on 102.
+Underestimated extremes are a problem of smoothing and of the tails of the distribution, not of global physical balance.
 \end{abstract}
 
 % =====================================================================
@@ -96,24 +101,29 @@ The literature offers two very different fixes, and this project asks whether ei
 
 \paragraph{What we did.}
 We built an end-to-end, reproducible pipeline (Figure~\ref{fig:pipeline}) around GraphCast\_small: find every
-record of 2020 in reanalysis data, group the records into events with unsupervised learning, forecast the
+record in reanalysis data, group the records into events with unsupervised learning, forecast the
 events with the original model (\R{0}), with three statistical corrections, and with four fine-tuned
-physics-constrained versions (\R{1}--\R{4}), and compare them on the same records. We also check that the
-remedies do no harm on 52 ordinary dates of 2020.
+physics-constrained versions (\R{1}--\R{4}), and compare them on the same records. We check that the
+remedies do no harm on 52 ordinary dates of 2020. The first results pointed to smoothing and to the tails of the distribution, so we then
+ran four follow-up experiments: a statistical correction aimed at the tails, a fine-tune with a loss that does not reward smoothing (\R{5}),
+a perturbed-start ensemble, and a six-fold larger set of 102 events from 2020--2022 on which every conclusion is re-tested.
 
 \paragraph{Contributions.}
 \begin{itemize}[leftmargin=*]
-  \item An event catalogue of the 2020 records built with DBSCAN, Isolation Forest and K-means (1{,}220 events, 91 record-shattering; Section~\ref{sec:events}).
-  \item A controlled test of a PBC-inspired correction, with event-level bootstrap and probabilistic checks (Section~\ref{sec:res-pbc}).
+  \item An event catalogue of the records of 2020--2022 built with DBSCAN, Isolation Forest and K-means, and two curated test sets:
+  14 case studies of 2020 and 102 events of 2020--2022 (Section~\ref{sec:events}, \ref{sec:ext-method}).
+  \item A controlled test of a PBC-inspired correction, with event-level bootstrap and probabilistic checks (Sections~\ref{sec:res-pbc}, \ref{sec:res-ext}).
   \item To our knowledge, the first implementation of Sha et al.'s conservation schemes inside GraphCast, with a control run that separates physics from fine-tuning (Sections~\ref{sec:physics}, \ref{sec:res-physics}).
-  \item Evidence that neither remedy helps records, and that \emph{smoothing} is the main lever (Section~\ref{sec:conclusions}).
+  \item Three follow-up methods aimed at the tails and at smoothing: tail quantile mapping, a sharpness-preserving loss, and a perturbed-start ensemble (Section~\ref{sec:res-follow}).
+  \item A replication of all findings on 102 events, which confirms the main effects and shows that two apparent gains on 14 events were not robust (Section~\ref{sec:res-ext}).
 \end{itemize}
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.92\linewidth]{pipeline.pdf}
 \caption{The project pipeline. Blue: data. Orange: finding extreme events with the three unsupervised methods.
-Green: forecasting systems compared. Red: evaluation on the same record cell-times, plus a ``do no harm'' check on ordinary weather.}
+Green: forecasting systems compared. Red: evaluation on the same record cell-times, plus a ``do no harm'' check on ordinary weather.
+The follow-up experiments (Section~\ref{sec:follow-method}) reuse the same pipeline with more events, a new correction, a new loss and an ensemble.}
 \label{fig:pipeline}
 \end{figure}
 
@@ -129,6 +139,8 @@ it outperformed the ECMWF high-resolution forecast on 90\% of 1{,}380 verificati
 transformers and reach similar skill; WeatherBench~2~\cite{rasp2024wb2} provides the common data and scores. A known side effect
 of squared-error training is \emph{blurring}: as uncertainty grows with lead time, forecasts become smoother than
 reality. Generative models such as GenCast~\cite{price2025gencast} avoid this by producing ensembles of sharp samples.
+Subich et al.~\cite{subich2025amse} trace the blurring to the ``double penalty'' of squared error (a feature in the wrong place is penalised twice) and propose an
+\emph{adjusted MSE} that removes the reward for smoothing.
 
 \paragraph{AI models and extremes.}
 Early evaluations found AI models competitive for many extremes, but with damped peak intensities
@@ -143,7 +155,8 @@ Correcting a model's systematic errors with statistics learned from past forecas
 practice~\cite{wilks2011statistical}. Guan et al.~\cite{guan2026pbc} propose \emph{probabilistic bias correction}
 for subseasonal forecasts (weeks 3--4). It combines a debiased forecast with a persistence-based
 regression on the observed starting state and outputs probabilities of five quintile categories, learned from about 20 years of reforecasts.
-It strongly improves skill for both AI and dynamical models.
+It strongly improves skill for both AI and dynamical models. A different family, \emph{quantile mapping}, matches the whole distribution of a model's values to that of
+observations rather than its mean; it is widely used to correct climate models and is known to matter most for extremes~\cite{cannon2015qm}.
 
 \paragraph{Physical constraints in neural networks.}
 Constraints can be imposed through the loss (``soft'') or through the architecture (``hard''); Beucler et al.~\cite{beucler2021enforcing}
@@ -162,7 +175,7 @@ circulation patterns such as blocking highs. The silhouette score~\cite{rousseeu
 \paragraph{Gap addressed here.}
 Neither PBC nor conservation schemes have been evaluated on record-breaking extremes, and the conservation schemes have
 not been implemented in GraphCast. This study runs both on the same records, with a control that separates the effect
-of the physics from the effect of fine-tuning.
+of the physics from the effect of fine-tuning, and tests the tail- and smoothing-oriented alternatives on more than a hundred events.
 
 % =====================================================================
 \section{Data}
@@ -170,16 +183,18 @@ of the physics from the effect of fine-tuning.
 
 \paragraph{ERA5: the ``truth''.}
 ERA5~\cite{hersbach2020era5} is a \emph{reanalysis}: ECMWF's best reconstruction of the global atmosphere every hour since 1940,
-made by combining past observations with a physics model. We use the WeatherBench~2 copy~\cite{rasp2024wb2} (0.25$^\circ$, 6-hourly)
+made by combining past observations with a physics model. We use the WeatherBench~2 copy~\cite{rasp2024wb2} (0.25$^\circ$, 6-hourly, to 10~January 2023)
 and take every 4th grid point, giving exactly the 1$^\circ$ grid ($181\times360$ points) that GraphCast\_small was trained on. Phase~0
 verified that this reproduces the authors' example forecast exactly (2\,m temperature RMSE 1.04\,K against 3.69\,K for persistence),
-with identical numbers on a laptop, Google Colab and the cluster.
+with identical numbers on a laptop, Google Colab and the cluster. Weather regimes use daily 500\,hPa height on WeatherBench~2's 2.8$^\circ$ grid;
+that store ends in 2021, so 2022 was regridded conservatively from the 0.25$^\circ$ store onto the same grid (a check month matches the original store to
+better than 0.05\,m$^2$\,s$^{-2}$ in values of about 55{,}000).
 
 \paragraph{The model.}
 GraphCast\_small~\cite{lam2023graphcast} is the public 1$^\circ$ version of GraphCast with 13 pressure levels (50--1000\,hPa), trained on ERA5 1979--2015.
 It predicts 6 surface variables (2\,m temperature, 10\,m wind components, sea-level pressure, 6\,h precipitation)
 and 6 variables on each level (temperature, wind, geopotential, humidity). We use the authors' code (JAX, bfloat16).
-Because 2020 lies outside its training years, it is a fair test year.
+Because 2020--2022 lie outside its training years, they are fair test years.
 
 \paragraph{Energy and water fluxes.}
 The conservation schemes need fluxes that GraphCast does not predict: evaporation, net solar and thermal radiation at the top of the atmosphere and at the surface,
@@ -196,17 +211,17 @@ Heat and cold extremes use 2\,m temperature; wind extremes use 10\,m wind speed 
 \subsection{From records to events: the extreme-value identification}
 \label{sec:events}
 
-\paragraph{Step 1: what counts as a record (Phase 1).}
+\paragraph{Step 1: what counts as a record.}
 For every 1$^\circ$ land cell and every calendar month, we take the highest 2\,m temperature, the lowest 2\,m temperature and the highest 10\,m wind speed
-of all 6-hourly values in 1979--2015, the model's training period. A \emph{record cell-time} is any 6-hourly value in 2020 above that
+of all 6-hourly values in 1979--2015, the model's training period. A \emph{record cell-time} is any 6-hourly value of the test year above that
 month's maximum (heat, wind) or below its minimum (cold). The \emph{exceedance} is the margin by which the record is beaten.
 This per-cell, per-month definition is intuitive: ``hotter than this place has ever been in this month, in 37 years''.
 It also follows Zhang et al.~\cite{zhang2026records}. 2020 contains 25{,}239 heat, 4{,}577 cold and 7{,}337 wind record cell-times (Figure~\ref{fig:records}).
 The hot spots match known events of 2020: the Siberian heatwave, the Pantanal drought in South America and the late-October cold outbreak in North America.
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.72\linewidth]{records_2020_maps.png}
+\includegraphics[width=0.78\linewidth]{records_2020_maps.png}
 \caption{Record cell-times of 2020 against the 1979--2015 monthly extremes. Colour shows how many 6-hourly
 time steps each cell broke its record; the right panels count records per latitude. Heat records dominate,
 with the largest clusters in Arctic Siberia and central South America.}
@@ -226,23 +241,32 @@ The key design choice is the distance. We embed each record cell-time in space a
 \textbf{250\,km} equals one unit, and time scaled so that \textbf{12\,h} equals one unit. Two records 250\,km apart at the same time, or at the
 same place 12\,h apart, are therefore equally ``close''. With \texttt{eps}\,=\,1 and \texttt{min\_samples}\,=\,5 a point needs four other records
 within that space--time neighbourhood to seed an event. Separate runs are made for heat, cold and wind. We chose \texttt{eps} with the
-standard \emph{k-distance plot} (Figure~\ref{fig:kdist}): sort all points by the distance to their 5th neighbour and look for the knee
+standard \emph{k-distance plot} (Figure~\ref{fig:events}a): sort all points by the distance to their 5th neighbour and look for the knee
 where the distance shoots up; points above the knee are isolated. For heat and cold the knee sits right at 1; wind records are
-more scattered, consistent with gusty, short-lived wind extremes. The result is \textbf{1{,}220 events} (802 heat, 141 cold, 277 wind) that contain 78\%, 80\% and 57\%
-of the heat, cold and wind records (Figure~\ref{fig:events}a); the rest are isolated cell-times treated as noise.
+more scattered, consistent with gusty, short-lived wind extremes. The result for 2020 is \textbf{1{,}220 events} (802 heat, 141 cold, 277 wind) that contain 78\%, 80\% and 57\%
+of the heat, cold and wind records (Figure~\ref{fig:events}b); the rest are isolated cell-times treated as noise.
 
+\begin{figure}[!htbp]
+\centering
+\begin{subfigure}[b]{0.36\linewidth}\includegraphics[width=\linewidth]{kdistance.png}\caption{}\end{subfigure}\hfill
+\begin{subfigure}[b]{0.62\linewidth}\includegraphics[width=\linewidth]{events_2020_map.png}\caption{}\end{subfigure}
+\caption{(a) k-distance plot used to choose DBSCAN's \texttt{eps}: distance (in the 250\,km\,/\,12\,h unit) from each record cell-time to its 5th neighbour, sorted.
+The knee near 1 separates dense events from scattered records. (b) Centres of the 1{,}220 DBSCAN events of 2020 (circle size = number of cells),
+with the six regional sectors used for weather regimes.}
+\label{fig:events}
+\end{figure}
 
 \paragraph{Step 3: which events are record-shattering? Isolation Forest.}
 Zhang et al.\ found that the forecast error grows with the size of the exceedance, so we need to know which events are not just
-records but \emph{exceptional} records. Every event is described by four features: number of cells (size), duration, peak exceedance and
-area-weighted mean exceedance. An Isolation Forest~\cite{liu2008isolation} builds many random trees; each tree splits the data on a random feature at a random threshold until every point
+records but \emph{exceptional} records. Every event is described by five features: area, duration, peak exceedance,
+area-weighted mean exceedance and number of record cell-times (sizes on a log scale, all standardised). An Isolation Forest~\cite{liu2008isolation} builds many random trees; each tree splits the data on a random feature at a random threshold until every point
 is isolated. Anomalous points sit far from the bulk and are isolated after few splits, so the average path length
 is a natural anomaly score that needs no distributional assumptions. Because the result depends on the random trees, we train
-\textbf{20 forests with different seeds} (contamination 0.1) and call an event \emph{record-shattering} if it is flagged in at least
+\textbf{20 forests with different seeds} (300 trees, contamination 0.1) and call an event \emph{record-shattering} if it is flagged in at least
 80\% of them \emph{and} its peak exceedance is above the median. The second condition removes events that are unusual only
-because they are tiny or oddly shaped. This yields \textbf{91 record-shattering events}: 61 heat, 10 cold and 20 wind (Figure~\ref{fig:outliers}).
+because they are large or oddly shaped. For 2020 this yields \textbf{91 record-shattering events}: 61 heat, 10 cold and 20 wind (Figure~\ref{fig:outliers}).
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.9\linewidth]{events_2020_outliers.png}
 \caption{Isolation Forest on event features: each dot is a DBSCAN event (area vs.\ peak exceedance). Red: record-shattering (flagged by $\geq$80\% of 20 forests and
@@ -255,17 +279,25 @@ and the North American cold outbreak (cold-003, 12.8\,K) stand out.}
 Forecasters describe the large-scale weather by its pattern at 500\,hPa (about 5.5\,km up): ridges (high pressure, sinking, clear skies, heat)
 and troughs (low pressure, storms, cold air). A small set of recurring patterns, \emph{weather regimes}, captures much of
 this variety~\cite{michelangeli1995regimes}. For each of six sectors (Middle East, North America, Euro-Atlantic, Asia--Siberia, South America, Australia)
-we take daily 500\,hPa height anomalies from 1979--2020, with the seasonal cycle and the warming trend removed, and reduce them to 10
+we take daily 500\,hPa height anomalies, with the seasonal cycle and the warming trend of 1979--2015 removed, and reduce them to 10
 principal components. We then cluster the days with K-means~\cite{lloyd1982kmeans}. K-means places $k$ centres and alternates between
 assigning each day to the nearest centre and moving each centre to the mean of its days, which minimises within-cluster variance.
-Each centre is then a typical weather map. The silhouette score~\cite{rousseeuw1987silhouettes}, which compares how close a day is to its own cluster
+Each centre is then a typical weather map. Everything is fitted on 1979--2015 only, so later days simply receive the label of the nearest centre.
+The silhouette score~\cite{rousseeuw1987silhouettes}, which compares how close a day is to its own cluster
 versus the next one, chose $k=3$ in every sector. Values were low (0.10--0.18), as is typical: the atmosphere moves continuously
 between patterns rather than in clearly separated states. The regimes are physically meaningful (Figure~\ref{fig:regimes}): for example, a Scandinavian blocking high
 in the Euro-Atlantic sector and a Siberian ridge in Asia. Each event receives the regime of its sector on its days, which lets us check
-that the case studies cover different circulation types.
+that the case studies cover different circulation types, and the follow-up correction TailQM-reg uses the regimes directly (Section~\ref{sec:follow-method}).
 
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.62\linewidth,trim=0 0 0 120,clip]{regimes_composites.png}
+\caption{K-means weather regimes ($k=3$ per sector): mean 500\,hPa height anomaly of each cluster, 1979--2015 (red = ridge/high, blue = trough/low),
+with the share of days in each regime. Heat records tend to occur under ridges, cold records under troughs that let polar air move south.}
+\label{fig:regimes}
+\end{figure}
 
-\paragraph{Step 5: choosing the case studies.}
+\paragraph{Step 5: choosing the 14 case studies.}
 Events were ranked by area-weighted exceedance. We skipped events centred north of 75$^\circ$N, mostly over the coast, or with fewer than 5 cells, and
 applied a quota so that the Middle East is represented. This gave \textbf{14 case studies} covering five sectors and all three regimes:
 five heat events (including the Siberian heatwave, a Canadian Arctic event and the Levant heatwave of September 2020), four cold events (including the
@@ -277,10 +309,12 @@ from 1, 3, 5 and 7 days before its peak, and scored on its 10{,}766 record cell-
 For each record cell-time we compare the forecast with ERA5. The \textbf{intensity error} is forecast minus truth (sign flipped for cold,
 so that negative always means ``too mild''); the \textbf{hit rate} is the share of record cell-times at which the forecast also breaks the record.
 Because record cells within one event are strongly correlated, uncertainty is estimated by a \textbf{bootstrap over events}~\cite{efron1994bootstrap}
-(resampling whole events, not cells) and by leaving each event out in turn. Comparisons between two systems are \emph{paired}: they use the same
+(resampling whole events, not cells) and by leaving each event out in turn; we call a change \emph{consistent} when its 95\% bootstrap range excludes zero, and report
+in how many events it goes the wrong way. Comparisons between two systems are \emph{paired}: they use the same
 record cells. For probabilistic forecasts we use the Brier score~\cite{brier1950verification} and reliability diagrams.
 For ordinary weather we use latitude-weighted RMSE, anomaly correlation (ACC) and \emph{activity}, the
 spatial standard deviation of the forecast anomaly divided by that of ERA5, which measures \textbf{sharpness} (1 = as detailed as reality, $<1$ = smoothed).
+In the event boxes we also report the \emph{box-wide RMSE} over all cells and times, an ``everyday'' score for the corrections.
 
 \subsection{Remedy 1: PBC-inspired statistical correction}
 \label{sec:pbc}
@@ -324,37 +358,99 @@ but made 5-day forecasts 15\% worse than \R{0}. A diagnostic run showed that the
 which had taught it how to handle uncertainty over several days. The final schedule first trains only the new flux channels (1{,}500 steps, rest frozen; \R{1} stays identical to \R{0}),
 then fine-tunes the whole model on 2-, 4- and 8-step rollouts (4{,}000 steps, learning rate $3\times10^{-6}$).
 
+\subsection{Follow-up methods}
+\label{sec:follow-method}
+The first results (Section~\ref{sec:res-physics}) showed that the only improvement came from less smoothing, and that PBC hurt because it pulls toward the mean.
+We therefore tested three methods aimed directly at the tails and at smoothing, and re-ran everything on a larger event set.
+
+\paragraph{Tail quantile mapping (QM, TailQM, TailQM-reg).}
+Instead of correcting the \emph{mean} error, quantile mapping corrects the \emph{distribution}~\cite{cannon2015qm}: a forecast as warm as the model's own
+97th percentile is replaced by ERA5's 97th percentile. If the model is too smooth, its distribution is too narrow, and the mapping \emph{widens} it, the
+opposite of what a regression does. We use the same hindcasts and truth as PBC. For every grid cell and lead day, the quantiles of the hindcasts and of ERA5 are
+estimated from the four 6\,h steps of that day and the $3\times3$ neighbouring cells pooled (about 2{,}000 values per fit), at 25 levels from 0.1\% to 99.9\%.
+Beyond the outermost levels the last offset is kept, so a forecast beyond anything in training can still be moved.
+\textbf{QM} maps every value. \textbf{TailQM} maps only the tails: the correction is phased in linearly from the 85th to the 95th percentile (and, for temperature, from
+the 15th to the 5th, for cold records), so typical values stay as \R{0}. \textbf{TailQM-reg} learns TailQM only from hindcasts that started in the same K-means
+regime as the forecast, in the event's sector (at least 15 hindcasts, otherwise all), because a model's error can depend on the circulation.
+
+\paragraph{Sharpness-preserving fine-tune (\R{5}).}
+\R{5} is the control \R{1} trained with a different loss, everything else identical. It starts from \R{1}'s weights after the flux warm-up,
+so the two differ \emph{only} in the loss of the 2-, 4- and 8-step stages. Following Subich et al.~\cite{subich2025amse}, write the squared error of a field
+through its means $m$, standard deviations $s$ and correlation $r$ with the truth:
+\begin{gather*}
+\mathrm{MSE} = (m_f-m_t)^2 + (s_f-s_t)^2 + 2\,s_f s_t\,(1-r),\\
+\mathrm{AMSE} = (m_f-m_t)^2 + (s_f-s_t)^2 + 2\,\max(s_f,s_t)^2\,(1-r).
+\end{gather*}
+Under MSE an uncertain forecast ($r<1$) lowers its loss by shrinking $s_f$, i.e.\ by smoothing; under AMSE the last term no longer shrinks, so smoothing only costs.
+Subich et al.\ apply this per spherical-harmonic wavenumber. We use a grid version: AMSE of each field plus the average AMSE of its east--west and north--south
+neighbour differences, which carry the small-scale detail that smoothing removes first. Validation keeps plain MSE, so all runs are comparable.
+
+\paragraph{Perturbed-start ensemble.}
+GraphCast\_small is deterministic, so an ensemble needs different starting states. Each of 20 members starts from \R{0}'s initial state plus
+$\pm\alpha\,(S_a - S_b)$, where $S_a, S_b$ are two real ERA5 states from 2016--2019 at the same time of year ($\pm6$ days of the event's calendar date). The difference of two real states
+is physically balanced and has realistic patterns; pairs $\pm$ make the perturbations average to zero; \R{0} itself is the 21st member.
+We tried $\alpha = 0.1$ and $0.2$. The record probability is the share of members breaking the record, scored as in Phase~4's probabilistic check.
+
+\paragraph{The extended event set (102 events).}
+\label{sec:ext-method}
+To test whether results on 14 events generalise, we repeated Steps 1--4 for 2021 and 2022 with identical settings, and selected the record-shattering events of
+2020--2022 that pass the same rules as Step 5, largest first, at most 15 heat, 8 cold and 10 wind per year, plus the 14 original case studies.
+This gives \textbf{102 events} (47 heat, 23 cold, 32 wind; 96 record-shattering) and \textbf{64{,}955 record cell-times}, six times the original set
+(map of the 2021 events in Figure~\ref{fig:events2021}). The Isolation Forests were fitted on each year's own events. As a check, fitting them on 2020 only and scoring
+2021--2022 against this fixed yardstick reproduces 94\% of the record-shattering events, and all 65 events selected from 2021--2022 are record-shattering under both
+definitions (Table~\ref{tab:yardstick}). All models (\R{0}, \R{1}, \R{4}, \R{5}) were run on the 408 forecasts, and the corrections were re-learned from
+2018--2019 hindcasts (about 42 starts per event).
+
 % =====================================================================
 \section{Results}
 \label{sec:results}
 
 \subsection{Baseline: GraphCast\_small forecasts records as too mild}
 \label{sec:res-base}
-Table~\ref{tab:baseline} and Figure~\ref{fig:baseline} reproduce Zhang et al.'s finding on our events. Every kind of record is forecast as too
+Table~\ref{tab:baseline} and Figure~\ref{fig:baseline} reproduce Zhang et al.'s finding on the 14 events. Every kind of record is forecast as too
 mild, and the shortfall grows from 1--2 units one day ahead to 5--7 units a week ahead. The hit rate falls accordingly: 65\% of heat records are
 forecast one day ahead, but only 28\% a week ahead, and almost no wind records are forecast a week ahead. The error grows with the exceedance:
 record-shattering heat events are underestimated by 3.3\,K on average, ordinary heat records by 1.1\,K. Events differ strongly. The Levant heatwave is
 forecast almost perfectly even 7 days ahead (Figure~\ref{fig:eventmap}), while one South American cold event is never forecast as a record.
 On ordinary days the same model is very skilful (2\,m temperature RMSE 0.68\,K at 1 day), so the weakness is specific to the extremes.
+The same pattern holds on the 102 events (Table~\ref{tab:baseline}, last rows): heat records are $-0.85$\,K too mild one day ahead and $-5.14$\,K a week ahead.
 
-\begin{table}[t]
-\caption{Baseline \R{0}: intensity error (negative = too mild) / hit rate on the record cell-times of the 14 events, by forecast start before the peak.}
+\begin{table}[!htbp]
+\caption{Baseline \R{0}: intensity error (negative = too mild) / hit rate on the record cell-times, by forecast start before the peak.}
 \label{tab:baseline}
 \centering\small
-\begin{tabular}{lcccc}
+\begin{tabular}{llcccc}
 \toprule
-Start before the peak & $-1$\,d & $-3$\,d & $-5$\,d & $-7$\,d \\
+& Start before the peak & $-1$\,d & $-3$\,d & $-5$\,d & $-7$\,d \\
 \midrule
-Heat (K)    & $-1.14$ / 65\% & $-2.10$ / 50\% & $-3.68$ / 33\% & $-5.18$ / 28\% \\
-Cold (K)    & $-1.98$ / 42\% & $-2.24$ / 41\% & $-5.48$ / 22\% & $-5.58$ / 20\% \\
-Wind (m/s)  & $-1.60$ / 42\% & $-2.33$ / 35\% & $-3.86$ / 19\% & $-7.49$ / \phantom{0}3\% \\
+\multirow{3}{*}{14 events} & Heat (K)    & $-1.14$ / 65\% & $-2.10$ / 50\% & $-3.68$ / 33\% & $-5.18$ / 28\% \\
+& Cold (K)    & $-1.98$ / 42\% & $-2.24$ / 41\% & $-5.48$ / 22\% & $-5.58$ / 20\% \\
+& Wind (m/s)  & $-1.60$ / 42\% & $-2.33$ / 35\% & $-3.86$ / 19\% & $-7.49$ / \phantom{0}3\% \\
+\midrule
+\multirow{3}{*}{102 events} & Heat (K)    & $-0.85$ / 72\% & $-1.41$ / 61\% & $-2.49$ / 47\% & $-5.14$ / 24\% \\
+& Cold (K)    & $-1.32$ / 58\% & $-2.02$ / 39\% & $-2.61$ / 42\% & $-3.75$ / 30\% \\
+& Wind (m/s)  & $-1.35$ / 46\% & $-2.33$ / 28\% & $-3.66$ / 22\% & $-5.80$ / 14\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.9\linewidth]{R0_by_start.png}
+\caption{Baseline \R{0} on the 14 events by forecast start: intensity error (top) and record hit rate (bottom), separately for record-shattering (blue) and ordinary
+record events (orange). For heat, the record-shattering events degrade much faster with lead time.}
+\label{fig:baseline}
+\end{figure}
 
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\linewidth]{heat-025.png}
+\caption{Example case study: the Levant heatwave of 4~September 2020 (heat-025). Left: ERA5 at the peak; then GraphCast\_small forecasts started 1, 3, 5 and 7 days earlier.
+Circles mark record cells. This event is well forecast at all leads; most others are not.}
+\label{fig:eventmap}
+\end{figure}
 
-
+\FloatBarrier
 \subsection{Do the schemes work, and do they do harm? Ordinary weather}
 \label{sec:res-ordinary}
 Before asking whether the physics helps records, we check that the schemes work and do not degrade everyday forecasts, as Sha et al.\ claim
@@ -366,167 +462,8 @@ $6.8\times10^{-3}$ to $2.3\times10^{-7}$ for moisture and from $8.2\times10^{-5}
 cost nothing relative to the control \R{1}, while energy costs about 5 points more at 5 days. The energy cost appears before any training of the backbone, so it comes from the predicted
 fluxes: small systematic errors in their global totals shift the global temperature every step, and the shifts accumulate.
 
-
-\paragraph{52 ordinary dates.}
-We then checked everyday skill with 10-day forecasts from 52 weekly dates of 2020, scored globally with 95\%
-bootstrap intervals over the dates (Figure~\ref{fig:ordinary}, Table~\ref{tab:ordinary}).
-\begin{itemize}[leftmargin=*]
-  \item \textbf{Fine-tuning trades lead times.} \R{1} beats \R{0} at 1 day on every variable (wind and 850\,hPa temperature on 100\% of dates), is 1--2.5\% worse at
-  3--5 days for temperature and wind, and returns to \R{0}'s level by 7--10 days.
-  \item \textbf{Mass and moisture are free.} \R{2} and \R{3} stay within about 1 percentage point of \R{1} at every lead time; anomaly correlation agrees to 0.01.
-  They also fix a real drift: \R{0} slowly moistens the atmosphere, reaching +1.55\% global water vapour after 10 days. \R{2}--\R{4} hold it at +0.15\%,
-  which is ERA5's own natural variation.
-  \item \textbf{Energy is not free.} \R{4} is the worst model at 3--7 days on every variable; its 2\,m temperature error is +6.8\% at 5 days and +11.3\% at 10 days
-  and worse than \R{0} on every one of the 52 dates at 3 and 5 days. Its total energy ends furthest of all models from ERA5's
-  ($+1.6\times10^{-3}$ relative), the opposite of the scheme's intent. Its temperature fields become \emph{noisier} than reality (activity 1.08 at 10 days) while its pressure fields
-  become the smoothest.
-\end{itemize}
-
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=0.88\linewidth]{ordinary_skill.png}
-\caption{Ordinary weather on 52 dates of 2020. Left and centre: RMSE change against \R{0} for 500\,hPa height and 2\,m temperature, with 95\% bootstrap ranges.
-Right: global water vapour of each forecast relative to ERA5. GraphCast\_small (\R{0}) drifts moist; the mass scheme (\R{2}--\R{4}) removes the drift.}
-\label{fig:ordinary}
-\end{figure}
-So mass and moisture conservation fix a genuine drift for free; whether that helps \emph{records} is the question of Section~\ref{sec:res-physics}.
-
-
-\subsection{Remedy 1: statistical correction makes records worse}
-\label{sec:res-pbc}
-On ordinary weather in the event boxes, the corrections work as intended: with PBC, RMSE falls from 2.62 to 2.57\,K for temperature and from
-1.78 to 1.62\,m/s for wind. On the records, however, they do not help (Table~\ref{tab:pbc}, Figure~\ref{fig:pbc}). Debias changes little.
-Persistence and PBC make heat records much worse: at $-7$\,d the heat error goes from $-5.18$\,K to $-7.49$\,K with PBC, and the hit rate falls from 28\% to 5\%.
-The worsening at $-5$\,d holds in 5 of 5 heat events under bootstrapping and leave-one-out; Debias is the only correction with a small consistent gain, for wind (+0.2--0.3\,m/s).
-
-The correction is learned from mostly ordinary days by minimising average error, so for an uncertain forecast it moves toward the usual conditions, exactly the wrong direction when something unprecedented happens.
-
-\begin{table}[t]
-\caption{Intensity error on record cell-times with the statistical corrections, starts $-5$\,d / $-7$\,d (negative = too mild).}
-\label{tab:pbc}
-\centering\small
-\begin{tabular}{lcccc}
-\toprule
- & \R{0} & Debias & Persistence & PBC \\
-\midrule
-Heat (K)   & $-3.68$ / $-5.18$ & $-3.98$ / $-5.34$ & $-5.80$ / $-9.64$ & $-4.89$ / $-7.49$ \\
-Cold (K)   & $-5.48$ / $-5.58$ & $-5.20$ / $-5.35$ & $-5.58$ / $-7.17$ & $-5.39$ / $-6.26$ \\
-Wind (m/s) & $-3.86$ / $-7.49$ & $-3.53$ / $-7.21$ & $-5.62$ / $-8.57$ & $-4.58$ / $-7.89$ \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-
-\paragraph{The probabilistic view helps.}
-Turning forecasts into probabilities of breaking the record changes the picture (Figure~\ref{fig:prob}). Every version beats \R{0}'s yes/no forecast
-on the Brier score (skill 0.05--0.34), but most of the gain comes from adding uncertainty alone: ``\R{0} + spread'' is the best heat forecast.
-Probabilities are reliable for heat, overconfident for cold and too cautious for wind with Persistence and PBC. At a 20\% warning level, the share of
-heat records caught 5 days ahead rises from 30\% to 65\%, while the share of correct warnings falls from 66\% to 41\%, a classical trade-off between
-missed events and false alarms~\cite{gneiting2007probabilistic}.
-
-
-
-\subsection{Remedy 2: conservation schemes on the records}
-\label{sec:res-physics}
-\paragraph{But they do not help records.}
-On the 14 events (Figure~\ref{fig:physics}), \R{2} and \R{3} are indistinguishable from the control \R{1}: changes are mostly within $\pm0.15$\,K or m/s.
-\R{4} is consistently worse from $-1$ to $-5$\,d: for example, cold at $-3$\,d by $-0.45$\,K (in 4 of 4 events), wind at $-3$\,d by $-0.46$\,m/s (5 of 5) and heat at $-5$\,d
-by $-0.90$\,K, with hit rates falling by up to 10--14 points. The fine-tuning shared by all physics runs (\R{1} vs.\ \R{0}) does improve heat at long leads: at $-7$\,d the heat error goes from
-$-5.18$ to $-4.11$\,K and the hit rate from 28\% to 37\%; record-shattering heat improves from $-3.34$ to $-2.98$\,K on average. Cold and wind are mixed.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=0.85\linewidth]{comparison_physics_bias_vs_exceedance.png}
-\caption{Intensity error against exceedance for \R{0} and the fine-tuned runs. \R{1}--\R{3} lie on top of each other (the physics changes nothing) and above \R{0} for heat
-(the fine-tuning helps); \R{4} (energy) is the worst for heat and cold.}
-\label{fig:physics}
-\end{figure}
-
-\paragraph{Why does fine-tuning help heat? Sharpness.}
-Figure~\ref{fig:sharp} measures how detailed the forecasts are in the event boxes. \R{0} becomes steadily smoother up to day 7 (2\,m temperature
-activity 0.944), while the fine-tuned runs stay near 0.97. A smoother forecast cannot reach a record value, so the fine-tuned runs, which blur less,
-get closer to the records. This is consistent with the hedging explanation in Section~\ref{sec:overview}.
-
-
-
-% =====================================================================
-\section{Discussion and conclusions}
-\label{sec:conclusions}
-
-\paragraph{Record extremes are a problem of the tails and of smoothing, not of global balance.}
-\emph{Statistical correction fails} because it is trained on ordinary days to minimise average error: for an uncertain forecast the optimal move is toward the normal,
-the wrong direction for a record. Its value lies in uncertainty, since as probabilities even uncorrected forecasts give useful record warnings.
-\emph{Global constraints do not help} because a record is a regional anomaly: balancing global dry-air mass, water or energy changes global totals by tiny amounts
-(ERA5 itself is out of balance by 0.0004--0.2\% on these levels) and says nothing about \emph{where} heat or wind concentrates. Mass and moisture conservation are
-cheap and even fix a moistening drift, but act on the wrong scale. \emph{Energy conservation hurts} because it forces the budget to agree with the model's own predicted
-fluxes, so any flux bias is pushed into the temperature every 6\,h; Sha et al.\ trained FuXi with the fluxes from the start, whereas we added them to a finished model.
-\emph{What did help} is less smoothing: fine-tuning on short rollouts costs a little squared error at 3--5 days (+1--2.5\% on ordinary dates) but brings heat forecasts
-about 1\,K closer to the records a week ahead. Squared-error training rewards exactly the smoothing that hides extremes.
-
-\paragraph{Conclusion.} For record-breaking extremes, neither the PBC-inspired correction nor Sha et al.'s conservation schemes reduce GraphCast\_small's
-underestimation. Mass and moisture conservation can be added at no cost in skill where physical consistency matters; energy conservation needs reliable fluxes first.
-The more promising directions keep forecasts sharp and their tails wide.
-
-\paragraph{Limitations.}
-The conclusions rest on 14 events from one year and on one small model at 1$^\circ$; differences below about 0.2\,K should not be over-interpreted.
-ERA5 is itself a smoothed reanalysis, and station records can be more extreme. The PBC-inspired correction is a deterministic, short-range adaptation and
-does not test Guan et al.'s published subseasonal method. The schemes were adapted to pressure levels (so mass conservation amounts to fixed global water vapour),
-and added by fine-tuning (5{,}500 steps on years the model already knew) rather than training from scratch.
-
-% =====================================================================
-\section{Prospects}
-\label{sec:prospects}
-The evidence points to three levers (sharp forecasts, weighted tails, probabilities); ideas in order of how directly our results support them:
-\begin{enumerate}[leftmargin=*]
-  \item \textbf{Tail-targeted post-processing}: quantile or extreme-value corrections fitted only to the most extreme days, per K-means regime.
-  \item \textbf{More events and years}: all 91 record-shattering events of 2020 and the records of 2021--2023.
-  \item \textbf{Sharpness-preserving training}: spectral, ``adjusted MSE'' or CRPS losses, since our only gain came from less smoothing.
-  \item \textbf{Probabilistic forecasts}: ensembles or GenCast-like models~\cite{price2025gencast}; spread alone gave heat Brier skill 0.14--0.25.
-  \item \textbf{Better inputs and physics}: soil moisture, oversampled extremes, jointly trained fluxes, 0.25$^\circ$ grid.
-\end{enumerate}
-
-\begin{ack}
-Computations were run on the MBZUAI shared H100 cluster (one 6\,h forecast step takes 0.06\,s on an H100), Google Colab and a laptop. All code, scripts per phase, SLURM jobs and offline tests are in the project repository \texttt{graphcast-extremes}; its README lists the exact commands. We thank the authors of GraphCast, WeatherBench~2 and ARCO-ERA5 for making
-their models and data openly available.
-\end{ack}
-
-\bibliographystyle{plainnat}
-\bibliography{refs}
-
-\appendix
-\section{Additional figures and tables}
-\label{app:figs}
-These figures and tables support the main text; they are referenced where they are discussed.
-
-\begin{figure}[h]
-\centering
-\includegraphics[width=0.92\linewidth]{R0_by_start.png}
-\caption{Baseline \R{0} by forecast start: intensity error (top) and record hit rate (bottom), separately for record-shattering (blue) and ordinary
-record events (orange). For heat, the record-shattering events degrade much faster with lead time.}
-\label{fig:baseline}
-\end{figure}
-
-\begin{table}[h]
-\caption{Ordinary weather, 52 dates of 2020: RMSE change against \R{0} (negative = better), and global water vapour of the forecast vs.\ ERA5 at 10 days.}
-\label{tab:ordinary}
-\centering\small
-\resizebox{\linewidth}{!}{%
-\begin{tabular}{lcccc}
-\toprule
-RMSE change vs.\ \R{0} & 1 day & 3 days & 5 days & 10 days \\
-\midrule
-2\,m temp.: \R{1} / \R{2} / \R{3} / \R{4} & $-0.3/-0.2/-0.3/+0.2$\% & $+1.7/+2.4/+2.0/+3.8$\% & $+1.6/+2.4/+2.0/+6.8$\% & $+1.4/+2.4/+2.0/+11.3$\% \\
-z500: \R{1} / \R{4} & $-0.4/+3.4$\% & $+0.9/+5.3$\% & $-0.8/+1.9$\% & $-1.1/-0.5$\% \\
-10\,m u-wind: \R{1} / \R{4} & $-1.9/-1.4$\% & $+1.1/+3.2$\% & $+1.5/+3.3$\% & $+0.8/+0.7$\% \\
-\midrule
-Water vapour at 10 d & \R{0} +1.55\% & \R{1} +0.95\% & \R{2}--\R{3} +0.15\% & \R{4} +0.15\% \\
-\bottomrule
-\end{tabular}}
-\end{table}
-
-\begin{table}[h]
-\caption{Validation on 2015 (normalised loss on the core variables; lower = better).}
+\begin{table}[!htbp]
+\caption{Validation on 2015 (normalised squared error on the core variables; lower = better).}
 \label{tab:val}
 \centering\small
 \begin{tabular}{lccc}
@@ -542,54 +479,370 @@ Water vapour at 10 d & \R{0} +1.55\% & \R{1} +0.95\% & \R{2}--\R{3} +0.15\% & \R
 \end{tabular}
 \end{table}
 
-\begin{figure}[h]
+\paragraph{52 ordinary dates.}
+We then checked everyday skill with 10-day forecasts from 52 weekly dates of 2020, scored globally with 95\%
+bootstrap intervals over the dates (Figure~\ref{fig:ordinary}, Table~\ref{tab:ordinary}).
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Fine-tuning trades lead times.} \R{1} beats \R{0} at 1 day on every variable (wind and 850\,hPa temperature on 100\% of dates), is 1--2.5\% worse at
+  3--5 days for temperature and wind, and returns to \R{0}'s level by 7--10 days.
+  \item \textbf{Mass and moisture are free.} \R{2} and \R{3} stay within about 1 percentage point of \R{1} at every lead time; anomaly correlation agrees to 0.01.
+  They also fix a real drift: \R{0} slowly moistens the atmosphere, reaching +1.55\% global water vapour after 10 days. \R{2}--\R{4} hold it at +0.15\%,
+  which is ERA5's own natural variation.
+  \item \textbf{Energy is not free.} \R{4} is the worst of \R{0}--\R{4} at 3--7 days on every variable; its 2\,m temperature error is +6.8\% at 5 days and +11.3\% at 10 days
+  and worse than \R{0} on every one of the 52 dates at 3 and 5 days. Its total energy ends furthest from ERA5's
+  ($+1.6\times10^{-3}$ relative), the opposite of the scheme's intent. Its temperature fields become \emph{noisier} than reality (activity 1.08 at 10 days) while its pressure fields
+  become the smoothest.
+\end{itemize}
+
+\begin{table}[!htbp]
+\caption{Ordinary weather, 52 dates of 2020: RMSE change against \R{0} (negative = better), and global water vapour of the forecast vs.\ ERA5 at 10 days.}
+\label{tab:ordinary}
+\centering\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lcccc}
+\toprule
+RMSE change vs.\ \R{0} & 1 day & 3 days & 5 days & 10 days \\
+\midrule
+2\,m temp.: \R{1} / \R{2} / \R{3} / \R{4} / \R{5} & $-0.3/-0.2/-0.3/+0.2/+0.8$\% & $+1.7/+2.4/+2.0/+3.8/+3.8$\% & $+1.6/+2.4/+2.0/+6.8/+5.0$\% & $+1.4/+2.4/+2.0/+11.3/+3.8$\% \\
+z500: \R{1} / \R{4} / \R{5} & $-0.4/+3.4/-1.7$\% & $+0.9/+5.3/+2.8$\% & $-0.8/+1.9/+4.2$\% & $-1.1/-0.5/+4.7$\% \\
+10\,m u-wind: \R{1} / \R{4} / \R{5} & $-1.9/-1.4/+0.6$\% & $+1.1/+3.2/+5.9$\% & $+1.5/+3.3/+6.7$\% & $+0.8/+0.7/+5.7$\% \\
+\midrule
+Water vapour at 10 d & \R{0} +1.55\% & \R{1} +0.95\% & \R{2}--\R{4} +0.15\% & \R{5} +2.12\% \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.95\linewidth]{comparison_bias_vs_exceedance.png}
-\caption{Intensity error against observed exceedance, averaged over starts, for \R{0} and the three corrections. All curves slope downward: the
+\includegraphics[width=0.92\linewidth]{ordinary_skill.png}
+\caption{Ordinary weather on 52 dates of 2020. Left and centre: RMSE change against \R{0} for 500\,hPa height and 2\,m temperature, with 95\% bootstrap ranges.
+Right: global water vapour of each forecast relative to ERA5. GraphCast\_small (\R{0}) drifts moist; the mass scheme (\R{2}--\R{4}) removes the drift.}
+\label{fig:ordinary}
+\end{figure}
+
+So mass and moisture conservation fix a genuine drift for free; whether that helps \emph{records} is the question of Section~\ref{sec:res-physics}.
+
+\FloatBarrier
+\subsection{Remedy 1: statistical correction makes records worse}
+\label{sec:res-pbc}
+On ordinary weather in the event boxes, the corrections work as intended: with PBC, box-wide RMSE falls from 2.62 to 2.57\,K for temperature and from
+1.78 to 1.62\,m/s for wind. On the records, however, they do not help (Table~\ref{tab:pbc}, Figure~\ref{fig:pbc}). Debias changes little.
+Persistence and PBC make heat records much worse: at $-7$\,d the heat error goes from $-5.18$\,K to $-7.49$\,K with PBC, and the hit rate falls from 28\% to 5\%.
+The worsening at $-5$\,d holds in 5 of 5 heat events under bootstrapping and leave-one-out; Debias is the only correction with a small consistent gain, for wind (+0.2--0.3\,m/s).
+The correction is learned from mostly ordinary days by minimising average error, so for an uncertain forecast it moves toward the usual conditions, exactly the wrong direction when something unprecedented happens.
+
+\begin{table}[!htbp]
+\caption{Intensity error on record cell-times of the 14 events with the statistical corrections, starts $-5$\,d / $-7$\,d (negative = too mild).}
+\label{tab:pbc}
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+ & \R{0} & Debias & Persistence & PBC \\
+\midrule
+Heat (K)   & $-3.68$ / $-5.18$ & $-3.98$ / $-5.34$ & $-5.80$ / $-9.64$ & $-4.89$ / $-7.49$ \\
+Cold (K)   & $-5.48$ / $-5.58$ & $-5.20$ / $-5.35$ & $-5.58$ / $-7.17$ & $-5.39$ / $-6.26$ \\
+Wind (m/s) & $-3.86$ / $-7.49$ & $-3.53$ / $-7.21$ & $-5.62$ / $-8.57$ & $-4.58$ / $-7.89$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.92\linewidth]{comparison_bias_vs_exceedance.png}
+\caption{Intensity error against observed exceedance on the 14 events, averaged over starts, for \R{0} and the three corrections. All curves slope downward: the
 bigger the record, the larger the shortfall. Persistence and PBC shift heat further from zero.}
 \label{fig:pbc}
 \end{figure}
 
-\begin{figure}[h]
+\paragraph{The probabilistic view helps.}
+Turning forecasts into probabilities of breaking the record changes the picture (Figure~\ref{fig:prob}). Every version beats \R{0}'s yes/no forecast
+on the Brier score (skill 0.05--0.34), but most of the gain comes from adding uncertainty alone: ``\R{0} + spread'' is the best heat forecast.
+Probabilities are reliable for heat, overconfident for cold and too cautious for wind with Persistence and PBC. At a 20\% warning level, the share of
+heat records caught 5 days ahead rises from 30\% to 65\%, while the share of correct warnings falls from 66\% to 41\%, a classical trade-off between
+missed events and false alarms~\cite{gneiting2007probabilistic}.
+
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.85\linewidth]{sharpness.png}
-\caption{Sharpness in the event boxes: spatial standard deviation of the forecast divided by that of ERA5 (1 = as detailed as reality). \R{0} smooths its
+\includegraphics[width=0.92\linewidth]{record_probability.png}
+\caption{Probabilistic check on the 14 events. Top: Brier skill relative to \R{0}'s yes/no forecast ($>0$ = better). Bottom: reliability diagrams; points on the diagonal mean the
+forecast probabilities are honest. Adding a learned spread helps everywhere; the correction itself adds little beyond that.}
+\label{fig:prob}
+\end{figure}
+
+\FloatBarrier
+\subsection{Remedy 2: conservation schemes on the records}
+\label{sec:res-physics}
+On the 14 events (Figure~\ref{fig:physics}), \R{2} and \R{3} are indistinguishable from the control \R{1}: changes are mostly within $\pm0.15$\,K or m/s.
+\R{4} is consistently worse from $-1$ to $-5$\,d: for example, cold at $-3$\,d by $-0.45$\,K (in 4 of 4 events), wind at $-3$\,d by $-0.46$\,m/s (5 of 5) and heat at $-5$\,d
+by $-0.90$\,K, with hit rates falling by up to 10--14 points. The fine-tuning shared by all physics runs (\R{1} vs.\ \R{0}) does improve heat at long leads: at $-7$\,d the heat error goes from
+$-5.18$ to $-4.11$\,K and the hit rate from 28\% to 37\%; record-shattering heat improves from $-3.34$ to $-2.98$\,K on average. Cold and wind are mixed.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.85\linewidth]{comparison_physics_bias_vs_exceedance.png}
+\caption{Intensity error against exceedance on the 14 events for \R{0} and the physics runs. \R{1}--\R{3} lie on top of each other (the physics changes nothing) and above \R{0} for heat
+(the fine-tuning helps); \R{4} (energy) is the worst for heat and cold.}
+\label{fig:physics}
+\end{figure}
+
+\paragraph{Why does fine-tuning help heat? Sharpness.}
+Figure~\ref{fig:sharp} measures how detailed the forecasts are in the event boxes. \R{0} becomes steadily smoother up to day 7 (2\,m temperature
+activity 0.944), while the fine-tuned runs stay near 0.97. A smoother forecast cannot reach a record value, so the fine-tuned runs, which blur less,
+get closer to the records. This is consistent with the hedging explanation in Section~\ref{sec:overview}, and motivated the follow-ups.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.8\linewidth]{sharpness.png}
+\caption{Sharpness in the 14 event boxes: spatial standard deviation of the forecast divided by that of ERA5 (1 = as detailed as reality). \R{0} smooths its
 temperature forecasts up to day 7; the fine-tuned runs keep more detail. \R{4} has the smoothest wind.}
 \label{fig:sharp}
 \end{figure}
 
+\FloatBarrier
+\subsection{Follow-up experiments on the 14 events}
+\label{sec:res-follow}
+
+\paragraph{Tail quantile mapping helps where PBC hurt.}
+Matching the distribution instead of the mean reverses the sign of the correction (Figure~\ref{fig:tail14}). QM and TailQM bring cold and wind records closer at every start
+(cold +0.9 to +1.3\,K in every event, wind +0.3 to +0.9\,m/s in all but one event-start) and heat at $-1$ and $-3$\,d (+0.7 and +0.6\,K); hit rates rise by 6--17 points.
+On record cells QM and TailQM are almost identical, as expected: record cells lie in the tails, where TailQM applies the full mapping.
+For heat at $-5$ and $-7$\,d the two are mixed and inconsistent, and for the largest heat records they are milder than \R{0}. TailQM-reg, learned within the same regime,
+improved heat a week ahead from $-5.18$ to $-4.12$\,K (hit rate 28\% to 41\%) on these 14 events. This gain did \emph{not} replicate on 102 events (Section~\ref{sec:res-ext}).
+The price is a 1--4\% higher box-wide RMSE: a wider distribution places some warm spots in the wrong place, which squared error penalises.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.92\linewidth]{tail14.png}
+\caption{Tail quantile mapping on the 14 events: intensity error against exceedance for \R{0}, PBC, QM, TailQM and TailQM-reg. The distribution-matching corrections lie above \R{0}
+for cold and wind at every record size; PBC lies below.}
+\label{fig:tail14}
+\end{figure}
+
+\paragraph{The sharpness loss removes the blurring and helps wind.}
+\R{5} keeps almost the full detail of reality at every lead time: globally its activity is 0.96--1.01 for all variables, against 0.92--0.97 for \R{0},
+and in the event boxes its wind detail stays at 0.97--1.02 (Figure~\ref{fig:r5}a). On the 14 events it brought wind records a week ahead from $-7.24$ to $-5.16$\,m/s
+against \R{1} (better in all 5 events), but did not help heat or cold (heat at $-7$\,d $-4.93$ against \R{1}'s $-4.11$\,K). On ordinary weather the sharper forecasts cost
+4--6\% RMSE at 3--7 days (Table~\ref{tab:ordinary}, Figure~\ref{fig:r5}b): a correctly sized feature in a slightly wrong place is penalised twice by squared error.
+Having no conservation scheme, \R{5} also drifts the most in global water vapour (+2.1\% at 10 days).
+
+\begin{figure}[!htbp]
+\centering
+\begin{subfigure}[b]{0.49\linewidth}\includegraphics[width=\linewidth]{sharpness_r5.png}\caption{}\end{subfigure}\hfill
+\begin{subfigure}[b]{0.49\linewidth}\includegraphics[width=\linewidth]{sharp14.png}\caption{}\end{subfigure}
+\caption{The sharpness-preserving fine-tune \R{5} on the 14 events. (a) Sharpness in the event boxes for \R{0}, \R{1} and \R{5}: \R{5}'s wind stays as detailed as ERA5.
+(b) Intensity error against exceedance: \R{5} is closest to the wind records, especially the largest ones, but not to heat records.}
+\label{fig:r5}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.92\linewidth]{ordinary_skill_r5.png}
+\caption{Ordinary weather on 52 dates with \R{5}: RMSE change against \R{0} for 500\,hPa height and 2\,m temperature, and global water vapour.
+\R{5}'s sharper forecasts cost 4--5\% RMSE from day 3; without a mass scheme its water vapour drifts more than \R{0}'s.}
+\label{fig:ordinary_r5}
+\end{figure}
+
+\paragraph{The ensemble gives useful warnings, but its mean is the smoothest forecast of all.}
+With $\alpha=0.1$ the ensemble's record probabilities beat \R{0}'s yes/no forecast for every kind and start (Brier skill 0.05--0.40; Figure~\ref{fig:ens}).
+It is the best probability method for cold from 3 days out (0.40 a week ahead against 0.14 for \R{0}+spread and 0.27 for PBC) and for wind a week ahead, while
+\R{0}+spread remains better for heat at 1--5 days (0.22--0.25 against 0.15--0.18). Its warnings are more often right (heat at $-7$\,d: 57\% of warnings at $\geq$20\% were records,
+against 25\% and 30\%), but it warns fewer records (19\% against 54\% and 39\%), and its reliability curves lie above the diagonal for heat and wind: when it says 20\%, records happen
+about 40\% of the time. All members share the model's mild bias, so they miss records together. Its spread is too small (spread/error 0.69--0.93); with $\alpha=0.2$ the
+spread is realistic (0.92--1.25) but the perturbations damage the forecast and every probability score drops. The ensemble \emph{mean} is far milder than \R{0} on records
+(heat at $-7$\,d $-8.53$ against $-5.18$\,K, hit rate 5\% against 28\%): averaging members that place the warmest spots differently cancels the peaks, the hedging effect made visible.
+
+\begin{figure}[!htbp]
+\centering
+\begin{subfigure}[b]{0.62\linewidth}\includegraphics[width=\linewidth]{ensemble.png}\caption{}\end{subfigure}\hfill
+\begin{subfigure}[b]{0.37\linewidth}\includegraphics[width=\linewidth,trim=0 0 1200 0,clip]{ensmean14.png}\caption{}\end{subfigure}
+\caption{Perturbed-start ensemble ($\alpha=0.1$, 21 members) on the 14 events. (a) Brier skill against \R{0}'s yes/no forecast, compared with Phase~4's \R{0}+spread and PBC (top),
+and the ensemble's reliability (bottom). (b) Heat: intensity error against exceedance of the ensemble mean, which is milder than \R{0} at every record size.}
+\label{fig:ens}
+\end{figure}
+
+\FloatBarrier
+\subsection{Replication on 102 events of 2020--2022}
+\label{sec:res-ext}
+With 23--47 events per kind, the event-level uncertainty ranges become meaningful. Table~\ref{tab:summary} summarises the changes against \R{0}.
+
+\paragraph{Models.}
+The fine-tuning gain for heat a week ahead replicates almost exactly: \R{1} improves it from $-5.14$ to $-4.12$\,K (+1.01\,K, consistent; hit rate 24\% to 31\%), against $-5.18$ to
+$-4.11$\,K on 14 events. \R{1} also gives small consistent gains for cold and wind 1--3 days ahead (+0.1 to +0.3). \R{4} is behind its own control almost everywhere
+(heat $-7$\,d: $-4.78$ against \R{1}'s $-4.12$\,K; cold $-7$\,d: $-4.54$ against $-3.99$\,K), confirming that energy conservation hurts records. \R{5} gives the broadest small gains:
+the best wind 1--3 days ahead (+0.30 and +0.41\,m/s; hit rate +8 points; only 1 of 32 events worse one day ahead) and better heat hit rates at every start (+2 to +6 points),
+but its large 7-day wind gain on 14 events does \emph{not} replicate (+0.25\,m/s, inconsistent), and its cold hit rate a week ahead is lower (Figure~\ref{fig:ext_models}).
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.92\linewidth]{ext_models.png}
+\caption{102 events: intensity error against exceedance for \R{0}, \R{1}, \R{4} and \R{5}. \R{1} and \R{5} lie above \R{0} for heat at every record size; \R{5} is closest for wind;
+\R{4} is the worst for heat and cold.}
+\label{fig:ext_models}
+\end{figure}
+
+\paragraph{Corrections.}
+The extended set settles the post-processing question (Figures~\ref{fig:ext_corr} and \ref{fig:ext_robust}). \textbf{PBC hurts records}: heat at $-7$\,d is 1.82\,K worse than \R{0}
+in 41 of 47 events (hit rate $-14$ points) and at $-5$\,d 0.89\,K worse in 36 of 47; cold and wind are consistently worse from 3--5 days. \textbf{TailQM helps nearly everywhere}:
+cold +0.66 to +0.84\,K at every start (at most 3 of 23 events worse), wind +0.45 to +0.65\,m/s at every start (at most 6 of 32 worse), heat +0.58 and +0.64\,K at $-1$ and $-3$\,d
+(at most 3 of 47 worse), with hit rates up by 8--19 points, and its curves lie above \R{0} at every record size, the largest records included. Conditioning on the regime
+adds a consistent gain only for heat at $-5$\,d (+0.52 against +0.20\,K). \textbf{Heat a week ahead remains unsolved by any correction} (TailQM +0.05\,K, inconsistent):
+most events improve, but a few lose several kelvin (Figure~\ref{fig:ext_robust}). The price of TailQM is a 4--5\% higher box-wide RMSE for temperature and 3--4\% for wind.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.92\linewidth]{ext_corrections.png}
+\caption{102 events: intensity error against exceedance for \R{0}, PBC, TailQM and TailQM-reg. The tail corrections lie above \R{0} for every kind and record size; PBC lies below.}
+\label{fig:ext_corr}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.92\linewidth]{ext_robust_corr.png}
+\caption{102 events, one dot per event: change of intensity error against \R{0} for PBC, TailQM and TailQM-reg, by start ($>0$ = closer to the record). PBC worsens most events from
+$-3$\,d on; TailQM improves almost all events except a few heat events a week ahead.}
+\label{fig:ext_robust}
+\end{figure}
+
+\begin{table}[!htbp]
+\caption{Summary on 102 events: change of intensity error against \R{0} (K or m/s; positive = closer to the record). Bold = consistent across events (95\% range excludes 0).}
+\label{tab:summary}
+\centering\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lcccccccccc}
+\toprule
+ & \multicolumn{4}{c}{Heat} & \multicolumn{3}{c}{Cold} & \multicolumn{3}{c}{Wind} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-8}\cmidrule(lr){9-11}
+ & $-1$\,d & $-3$\,d & $-5$\,d & $-7$\,d & $-1$\,d & $-3$\,d & $-7$\,d & $-1$\,d & $-3$\,d & $-7$\,d \\
+\midrule
+PBC (toward the mean) & \textbf{+0.10} & $-0.16$ & \textbf{$-$0.89} & \textbf{$-$1.82} & +0.02 & $-0.05$ & \textbf{$-$1.05} & \textbf{$-$0.09} & \textbf{$-$0.30} & \textbf{$-$0.40} \\
+TailQM (tails) & \textbf{+0.58} & \textbf{+0.64} & +0.20 & +0.06 & \textbf{+0.66} & \textbf{+0.84} & \textbf{+0.81} & \textbf{+0.61} & \textbf{+0.65} & \textbf{+0.45} \\
+TailQM-reg (tails, same regime) & \textbf{+0.57} & \textbf{+0.64} & \textbf{+0.52} & +0.05 & \textbf{+0.69} & \textbf{+0.79} & \textbf{+0.53} & \textbf{+0.62} & \textbf{+0.65} & \textbf{+0.44} \\
+\midrule
+\R{1} (fine-tuning) & $-0.03$ & $-0.11$ & +0.09 & \textbf{+1.01} & \textbf{+0.11} & \textbf{+0.28} & $-0.24$ & \textbf{+0.09} & \textbf{+0.16} & $-0.23$ \\
+\R{4} (+ energy) & \textbf{$-$0.08} & \textbf{$-$0.18} & $-0.30$ & +0.36 & $-0.06$ & +0.04 & $-0.79$ & $-0.01$ & \textbf{$-$0.21} & $-0.11$ \\
+\R{5} (sharpness loss) & \textbf{+0.08} & \textbf{+0.12} & +0.27 & +0.52 & \textbf{+0.11} & \textbf{+0.19} & $-0.40$ & \textbf{+0.30} & \textbf{+0.41} & +0.25 \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\FloatBarrier
+\paragraph{What did not replicate.}
+Two results that looked strong on 14 events were driven by a few events: TailQM-reg's +1.05\,K for heat a week ahead (+0.05 on 102 events) and \R{5}'s +2.1\,m/s for wind
+a week ahead (+0.25). Smoothing also matters less in the larger set: over the 102 event boxes \R{0}'s temperature activity stays at 0.98 up to day 7 (Figure~\ref{fig:ext_sharp}),
+against 0.94 on the 14 events. Fourteen events were enough to find the main effects, but not to trust effects at the longest lead times.
+
+% =====================================================================
+\section{Discussion and conclusions}
+\label{sec:conclusions}
+
+\paragraph{Record extremes are a problem of the tails and of smoothing, not of global balance.}
+\emph{Corrections toward the mean fail} because they are trained on ordinary days to minimise average error: for an uncertain forecast the optimal move is toward the normal,
+the wrong direction for a record. On 102 events PBC worsens heat records a week ahead in 41 of 47 events. \emph{Corrections of the distribution work}: quantile mapping of the
+tails, learned from the same hindcasts, brings cold, wind and short-range heat forecasts 0.5--0.8 units closer to the records in nearly every event. The difference is only
+\emph{what} is matched, the mean or the spread.
+\emph{Global constraints do not help} because a record is a regional anomaly: balancing global dry-air mass, water or energy changes global totals by tiny amounts
+(ERA5 itself is out of balance by 0.0004--0.2\% on these levels) and says nothing about \emph{where} heat or wind concentrates. Mass and moisture conservation are
+cheap and even fix a moistening drift, but act on the wrong scale. \emph{Energy conservation hurts} because it forces the budget to agree with the model's own predicted
+fluxes, so any flux bias is pushed into the temperature every 6\,h; Sha et al.\ trained FuXi with the fluxes from the start, whereas we added them to a finished model.
+
+\paragraph{Smoothing.}
+Squared-error training rewards exactly the smoothing that hides extremes, and every result is consistent with this. Fine-tuning that blurred less brought heat forecasts 1\,K closer a week ahead,
+the only method that does so on 102 events. A loss that removes the reward for smoothing (\R{5}) gives the most detailed forecasts and the best short-range wind, and the ensemble
+\emph{mean}, an explicit average over uncertainty, is the mildest forecast of all. Sharpness alone is not enough for heat: heatwaves are large-scale air masses whose
+intensity the model underestimates as a whole, which more detail does not fix.
+
+\paragraph{The trade-off.}
+Every method that gets closer to records costs a few percent of everyday squared error (TailQM +3--5\% box-wide, \R{5} +4--6\% at 3--7 days), because it accepts
+the double penalty that smooth forecasts avoid. Which forecast is ``better'' therefore depends on the score: standard squared-error scores favour the forecasts that
+underestimate records.
+
+\paragraph{Conclusion.}
+Neither the PBC-inspired correction nor Sha et al.'s conservation schemes reduce GraphCast\_small's underestimation of record-breaking extremes. Mass and moisture
+conservation can be added at no cost in skill where physical consistency matters; energy conservation needs reliable fluxes first. What helps targets the tails or
+the smoothing: tail quantile mapping for cold, wind and short-range heat, less-smoothing training for heat a week ahead, and ensembles for record warnings.
+For practice, the cheapest effective step is the tail correction, which needs no retraining.
+
+\paragraph{Limitations.}
+One small model at 1$^\circ$ and three test years; ERA5 is itself a smoothed reanalysis, and station records can be more extreme. The PBC-inspired correction is a deterministic,
+short-range adaptation and does not test Guan et al.'s published subseasonal method. The schemes were adapted to pressure levels (so mass conservation amounts to fixed global
+water vapour) and added by fine-tuning (5{,}500 steps on years the model already knew) rather than training from scratch. \R{5}'s loss is a grid approximation of Subich et al.'s
+spherical-harmonic AMSE, and its weight was not tuned. The ensemble perturbs only the starting state of a deterministic model. On the extended set the corrections were learned
+from two years of hindcasts and \R{2}, \R{3} and the ensemble were not re-run.
+
+% =====================================================================
+\section{Prospects}
+\label{sec:prospects}
+The follow-ups covered the prospects within the scope of GraphCast verification. What remains, in order of how directly the results support it:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Combine what works}: tail quantile mapping applied to \R{1}'s or \R{5}'s forecasts, and \R{5} with the mass scheme (keeping the sharpness without the moisture drift).
+  \item \textbf{Long-range heat}: the open problem. Losses that weight warm anomalies, or tail corrections that use the forecast's large-scale pattern rather than the regime at the start.
+  \item \textbf{Scores that do not reward smoothing}: verify and select models with distribution- or tail-aware scores, since squared error favours under-forecasting records.
+  \item \textbf{Generative ensembles} such as GenCast~\cite{price2025gencast}, whose members are sharp and whose spread comes from the model, not only from the start.
+  \item \textbf{Inputs and resolution}: soil moisture (dry soils amplify heat), oversampled extreme days, jointly trained fluxes and the 0.25$^\circ$ GraphCast.
+\end{enumerate}
+
+\begin{ack}
+Computations were run on the MBZUAI shared H100 cluster (one 6\,h forecast step takes 0.06\,s on an H100), Google Colab and a laptop. All code, scripts per phase, SLURM jobs and offline tests are in the project repository \texttt{graphcast-extremes}; its README lists the exact commands. We thank the authors of GraphCast, WeatherBench~2 and ARCO-ERA5 for making
+their models and data openly available.
+\end{ack}
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\appendix
+\section{Supplementary material for the extended event set}
+\label{app:ext}
+
+\begin{table}[h]
+\caption{The extended set: events per year and kind (2020 includes the 14 original case studies; 96 of the 102 events are record-shattering).}
+\label{tab:extset}
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+Year & Heat & Cold & Wind & Total \\
+\midrule
+2020 & 17 & 8 & 12 & 37 \\
+2021 & 15 & 7 & 10 & 32 \\
+2022 & 15 & 8 & 10 & 33 \\
+\midrule
+Total & 47 & 23 & 32 & 102 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\caption{Isolation Forest fitted on each year's own events vs.\ on 2020's (``fixed yardstick''): number of record-shattering events, how many both agree on,
+and how many of the events chosen for the extended set are record-shattering under the 2020 yardstick too.}
+\label{tab:yardstick}
+\centering\small
+\begin{tabular}{llcccccc}
+\toprule
+Year & Kind & Events & Own fit & 2020 yardstick & Both & Chosen & Chosen, also 2020 yardstick \\
+\midrule
+2021 & cold & 114 & 10 & 24 & 10 & 7 & 7 \\
+2021 & heat & 804 & 67 & 66 & 62 & 15 & 15 \\
+2021 & wind & 271 & 25 & 31 & 25 & 10 & 10 \\
+2022 & cold & 148 & 13 & 21 & 12 & 8 & 8 \\
+2022 & heat & 667 & 51 & 48 & 45 & 15 & 15 \\
+2022 & wind & 273 & 25 & 27 & 25 & 10 & 10 \\
+\midrule
+\multicolumn{3}{l}{All} & 191 & 217 & 179 & 65 & 65 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \begin{figure}[h]
 \centering
-\begin{subfigure}[b]{0.36\linewidth}\includegraphics[width=\linewidth]{kdistance.png}\caption{}\label{fig:kdist}\end{subfigure}\hfill
-\begin{subfigure}[b]{0.62\linewidth}\includegraphics[width=\linewidth]{events_2020_map.png}\caption{}\end{subfigure}
-\caption{(a) k-distance plot used to choose DBSCAN's \texttt{eps}: distance (in the 250\,km\,/\,12\,h unit) from each record cell-time to its 5th neighbour, sorted.
-The knee near 1 separates dense events from scattered records. (b) Centres of the 1{,}220 DBSCAN events of 2020 (circle size = number of cells),
-with the six regional sectors used for weather regimes.}
-\label{fig:events}
+\includegraphics[width=0.75\linewidth]{events_2021_map.png}
+\caption{Centres of the DBSCAN events of 2021 (same settings as 2020), with the regime sectors.}
+\label{fig:events2021}
 \end{figure}
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.66\linewidth,trim=0 0 0 120,clip]{regimes_composites.png}
-\caption{K-means weather regimes ($k=3$ per sector): mean 500\,hPa height anomaly of each cluster, 1979--2015 (red = ridge/high, blue = trough/low),
-with the share of days in each regime. Heat records tend to occur under ridges, cold records under troughs that let polar air move south.}
-\label{fig:regimes}
-\end{figure}
-
-\begin{figure}[h]
-\centering
-\includegraphics[width=\linewidth]{heat-025.png}
-\caption{Example case study: the Levant heatwave of 4~September 2020 (heat-025). Left: ERA5 at the peak; then GraphCast\_small forecasts started 1, 3, 5 and 7 days earlier.
-Circles mark record cells. This event is well forecast at all leads; most others are not.}
-\label{fig:eventmap}
-\end{figure}
-
-\begin{figure}[h]
-\centering
-\includegraphics[width=0.95\linewidth]{record_probability.png}
-\caption{Probabilistic check. Top: Brier skill relative to \R{0}'s yes/no forecast ($>0$ = better). Bottom: reliability diagrams; points on the diagonal mean the
-forecast probabilities are honest. Adding a learned spread helps everywhere; the correction itself adds little beyond that.}
-\label{fig:prob}
+\includegraphics[width=0.8\linewidth]{ext_sharpness.png}
+\caption{Sharpness in the 102 event boxes for \R{0}, \R{1} and \R{5}. \R{0} smooths much less here than in the 14 original boxes; \R{5} keeps the most detail, especially for wind.}
+\label{fig:ext_sharp}
 \end{figure}
 
 \end{document}

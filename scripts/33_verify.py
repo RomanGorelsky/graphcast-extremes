@@ -79,7 +79,7 @@ def main():
     tc = float(err.truth_check.max()) if len(err) else float("nan")
     print(f"{len(cm)} forecasts, {len(err):,} verified record cell-times; "
           f"truth check (ERA5 here vs Phase 1 records): max diff {tc:.2e} "
-          f"{'OK' if tc < 1e-3 else '- MISMATCH, tell Claude'}")
+          f"{'OK' if tc < 1e-3 else '- MISMATCH, investigate'}")
 
     # ---- summary
     def agg(g):
